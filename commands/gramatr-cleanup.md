@@ -52,11 +52,18 @@ Open `~/.claude/settings.json` and check:
   `gramatr-hook-stop`, or any `~/.gramatr/bin/...` paths. The plugin's
   hooks live in its own `hooks/hooks.json` — they should NOT also appear
   in the user-level settings file.
-- The top-level `statusLine` key is absent (or unrelated to grāmatr).
-  The plugin ships its own statusLine via its plugin-level `settings.json`,
-  so a user-level entry would either duplicate or shadow it.
+- The top-level `statusLine` key is present and points to the grāmatr
+  statusline command. Claude Code does not merge plugin-level `settings.json`
+  into user settings automatically, so `statusLine` must live here:
+  ```json
+  "statusLine": {
+    "type": "command",
+    "command": "cat \"${CLAUDE_PROJECT_DIR:-$PWD}/.gramatr/statusline.txt\" 2>/dev/null"
+  }
+  ```
+  If it is absent, run `/gramatr-statusline` to install it.
 
-If you find legacy entries, remove them manually — settings.json is
+If you find legacy hook entries, remove them manually — settings.json is
 user-owned and the plugin will not touch it.
 
 ## Step 6 — Restart Claude Code
