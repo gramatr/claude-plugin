@@ -1,0 +1,33 @@
+{
+  "name": "gramatr",
+  "displayName": "grāmatr",
+  "version": "0.22.8",
+  "description": "Real-time intelligent context engineering that makes every prompt cheaper, faster, and context-aware.",
+  "tagline": "Patent-pending real-time intelligent context engineering for every AI tool you use.",
+  "long_description": "grāmatr℠ is a patent-pending real-time intelligent context engineering layer that sits between you and every AI model you use. Every prompt runs through a multi-head classification pipeline that pre-routes the request, assembles behavioral directives and quality criteria, and pulls relevant context from past work — so the model skips orientation overhead and starts working immediately. It replaces the tens-of-thousands-token system prompt you'd otherwise hand-maintain, and the effect compounds the longer you work. Because the same contract — directives plus quality gates — runs on every prompt, behavior stays consistent and auditable across sessions, tools, and teammates: your AI acts the same on session 200 as on session 1, so you spend less time re-explaining and more time shipping. Works across Claude, ChatGPT, Cursor, Codex, Gemini, and VS Code.",
+  "featured_use_cases": [
+    "Resume yesterday's project from any AI tool, on any device",
+    "Save your preferences once — every assistant respects them",
+    "Pre-classified prompts mean faster, cheaper answers",
+    "Quality checks and structured execution baked into every task",
+    "Consistent AI behavior across every session — same standards, same quality gates, same preferences, every time.",
+    "Autonomous agent work held to the same standards — every turn adjudicated against your contract",
+    "Less re-explaining, less drift — productivity that compounds across sessions"
+  ],
+  "owner": {
+    "name": "gramatr",
+    "email": "support@gramatr.com",
+    "url": "https://gramatr.com"
+  },
+  "homepage": "https://gramatr.com",
+  "repository": "https://github.com/gramatr/claude-plugin",
+  "license": "SEE LICENSE IN LICENSE",
+  "keywords": [
+    "intelligence",
+    "memory",
+    "routing",
+    "context",
+    "mcp"
+  ],
+  "hooks_file": "hooks/hooks.json"
+}
