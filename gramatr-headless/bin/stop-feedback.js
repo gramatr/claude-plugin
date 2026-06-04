@@ -1,0 +1,403 @@
+#!/usr/bin/env node
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// dist/bin/stop-feedback.js
+var stop_feedback_exports = {};
+__export(stop_feedback_exports, {
+  captureBothSidesTurn: () => captureBothSidesTurn,
+  main: () => main,
+  postTurnFeedback: () => postTurnFeedback,
+  runStopFeedback: () => runStopFeedback
+});
+module.exports = __toCommonJS(stop_feedback_exports);
+
+// dist/hooks/lib/session-rest-token.js
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
+var GRAMATR_DIR = ".gramatr";
+var SESSION_FILE = ".session";
+var SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
+var RENEW_TIMEOUT_MS = 3e3;
+function getSessionTokenPath(projectDir) {
+  return (0, import_node_path.join)(projectDir, GRAMATR_DIR, SESSION_FILE);
+}
+function normalizeRestTokenBlock(block) {
+  if (!block || typeof block !== "object")
+    return null;
+  const { token, expires_at, base_url, aud } = block;
+  if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
+    return { token, expires_at, base_url, aud };
+  }
+  return null;
+}
+function writeSessionToken(projectDir, file) {
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  if (!(0, import_node_fs.existsSync)(dir)) {
+    (0, import_node_fs.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  const dest = getSessionTokenPath(projectDir);
+  const tmp = `${dest}.tmp.${process.pid}`;
+  (0, import_node_fs.writeFileSync)(tmp, JSON.stringify(file, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs.renameSync)(tmp, dest);
+  try {
+    (0, import_node_fs.chmodSync)(dest, 384);
+  } catch {
+  }
+}
+function readSessionToken(projectDir) {
+  const dest = getSessionTokenPath(projectDir);
+  try {
+    if (!(0, import_node_fs.existsSync)(dest))
+      return null;
+    const parsed = JSON.parse((0, import_node_fs.readFileSync)(dest, "utf8"));
+    return normalizeRestTokenBlock(parsed);
+  } catch {
+    return null;
+  }
+}
+function isSessionTokenValid(file, now = Date.now()) {
+  if (!file)
+    return false;
+  const exp = Date.parse(file.expires_at);
+  if (Number.isNaN(exp))
+    return false;
+  return exp - SESSION_TOKEN_EXPIRY_SKEW_MS > now;
+}
+function deleteSessionToken(projectDir) {
+  try {
+    (0, import_node_fs.rmSync)(getSessionTokenPath(projectDir), { force: true });
+  } catch {
+  }
+}
+function bearerHeader(file) {
+  if (!file || !file.token)
+    return {};
+  return { Authorization: `Bearer ${file.token}` };
+}
+function apiV1Base(baseUrl) {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  return `${trimmed}/api/v1`;
+}
+async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
+  const url = `${apiV1Base(file.base_url)}/session/token/renew`;
+  let res;
+  try {
+    res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${file.token}`
+      },
+      signal: AbortSignal.timeout(RENEW_TIMEOUT_MS)
+    });
+  } catch {
+    return { status: "error" };
+  }
+  if (res.status === 401) {
+    deleteSessionToken(projectDir);
+    return { status: "denied" };
+  }
+  if (!res.ok) {
+    return { status: "error" };
+  }
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    return { status: "error" };
+  }
+  const fresh = normalizeRestTokenBlock({
+    token: body.token,
+    expires_at: body.expires_at,
+    // The renew response carries only token + expires_at; the audience and host
+    // are unchanged, so we preserve them from the presenting file.
+    base_url: file.base_url,
+    aud: file.aud
+  });
+  if (!fresh) {
+    return { status: "error" };
+  }
+  writeSessionToken(projectDir, fresh);
+  return { status: "renewed", file: fresh };
+}
+async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Date.now()) {
+  const file = readSessionToken(projectDir);
+  if (!file)
+    return null;
+  if (isSessionTokenValid(file, now))
+    return file;
+  const outcome = await renewSessionToken(projectDir, file, fetchImpl);
+  if (outcome.status === "renewed")
+    return outcome.file;
+  if (outcome.status === "denied")
+    return null;
+  return file;
+}
+
+// dist/hooks/lib/turn-buffer.js
+var import_node_fs2 = require("node:fs");
+var import_node_path2 = require("node:path");
+var GRAMATR_DIR2 = ".gramatr";
+var TURNS_FILE = "pending-turns.json";
+var MAX_BUFFERED_TURNS = 200;
+function getTurnBufferPath(projectDir) {
+  return (0, import_node_path2.join)(projectDir, GRAMATR_DIR2, TURNS_FILE);
+}
+function readBufferedTurns(projectDir) {
+  const dest = getTurnBufferPath(projectDir);
+  try {
+    if (!(0, import_node_fs2.existsSync)(dest))
+      return [];
+    const parsed = JSON.parse((0, import_node_fs2.readFileSync)(dest, "utf8"));
+    if (!Array.isArray(parsed))
+      return [];
+    return parsed.filter((t) => t != null && typeof t === "object" && typeof t.prompt === "string");
+  } catch {
+    return [];
+  }
+}
+function writeBufferedTurns(projectDir, turns) {
+  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR2);
+  if (!(0, import_node_fs2.existsSync)(dir)) {
+    (0, import_node_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  const dest = getTurnBufferPath(projectDir);
+  const tmp = `${dest}.tmp.${process.pid}`;
+  (0, import_node_fs2.writeFileSync)(tmp, JSON.stringify(turns, null, 2) + "\n", "utf8");
+  (0, import_node_fs2.renameSync)(tmp, dest);
+}
+function appendBufferedTurn(projectDir, turn) {
+  if (!turn || typeof turn.prompt !== "string" || turn.prompt.length === 0)
+    return;
+  try {
+    const turns = readBufferedTurns(projectDir);
+    turns.push(turn);
+    const capped = turns.length > MAX_BUFFERED_TURNS ? turns.slice(-MAX_BUFFERED_TURNS) : turns;
+    writeBufferedTurns(projectDir, capped);
+  } catch {
+  }
+}
+
+// dist/hooks/lib/transcript-parser.js
+var import_node_fs3 = require("node:fs");
+function extractAssistantText(content) {
+  if (typeof content === "string")
+    return content.trim();
+  if (!Array.isArray(content))
+    return "";
+  return content.filter((block) => block?.type === "text" && typeof block?.text === "string").map((block) => block.text.trim()).filter(Boolean).join("\n").trim();
+}
+function extractHandoffFromToolUse(content) {
+  if (!Array.isArray(content))
+    return null;
+  for (const block of content) {
+    if (block?.type === "tool_use" && (block?.name === "save_handoff" || block?.name === "saveHandoff") && block?.input != null) {
+      const input = block.input;
+      const result = {};
+      if (typeof input.where_we_are === "string" && input.where_we_are.trim())
+        result.where_we_are = input.where_we_are.trim();
+      if (typeof input.whats_next === "string" && input.whats_next.trim())
+        result.whats_next = input.whats_next.trim();
+      if (typeof input.key_context === "string" && input.key_context.trim())
+        result.key_context = input.key_context.trim();
+      if (typeof input.dont_forget === "string" && input.dont_forget.trim())
+        result.dont_forget = input.dont_forget.trim();
+      if (Object.keys(result).length > 0)
+        return result;
+    }
+  }
+  return null;
+}
+function extractHandoffFromMarkdown(text) {
+  const fieldMap = {
+    where_we_are: "where_we_are",
+    whats_next: "whats_next",
+    "what's_next": "whats_next",
+    key_context: "key_context",
+    dont_forget: "dont_forget"
+  };
+  const headerPattern = /^##\s+(where_we_are|whats_next|what's_next|key_context|dont_forget)\s*$/im;
+  if (!headerPattern.test(text))
+    return null;
+  const result = {};
+  const sections = text.split(/^##\s+/m);
+  for (const section of sections) {
+    const newline = section.indexOf("\n");
+    if (newline === -1)
+      continue;
+    const headerRaw = section.slice(0, newline).trim().toLowerCase();
+    const body = section.slice(newline + 1).trim();
+    if (!body)
+      continue;
+    const field = fieldMap[headerRaw];
+    if (field) {
+      result[field] = body;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+function parseTranscript(transcriptPath) {
+  try {
+    const transcriptContent = (0, import_node_fs3.readFileSync)(transcriptPath, "utf8");
+    const lines = transcriptContent.trim().split("\n");
+    let lastUserPrompt = "";
+    let lastAssistantText = "";
+    let structured;
+    for (const line of lines) {
+      if (!line.trim())
+        continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === "human" || entry.type === "user") {
+          const content = entry.message?.content;
+          if (typeof content === "string" && content.trim()) {
+            lastUserPrompt = content.trim();
+            continue;
+          }
+          if (Array.isArray(content)) {
+            const text = content.filter((block) => block?.type === "text" && typeof block?.text === "string").map((block) => block.text.trim()).filter(Boolean).join("\n").trim();
+            if (text)
+              lastUserPrompt = text;
+          }
+          continue;
+        }
+        if (entry.type === "assistant") {
+          const content = entry.message?.content;
+          const toolUseResult = extractHandoffFromToolUse(content);
+          if (toolUseResult) {
+            structured = toolUseResult;
+          }
+          const assistantText = extractAssistantText(content);
+          if (assistantText)
+            lastAssistantText = assistantText;
+        }
+      } catch {
+      }
+    }
+    if (!structured && lastAssistantText) {
+      const markdownResult = extractHandoffFromMarkdown(lastAssistantText);
+      if (markdownResult)
+        structured = markdownResult;
+    }
+    return { lastUserPrompt, lastAssistantText, structured };
+  } catch {
+    return null;
+  }
+}
+
+// dist/bin/stop-feedback.js
+var FEEDBACK_TIMEOUT_MS = 4e3;
+function resolveProjectDir() {
+  return process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
+}
+function captureBothSidesTurn(projectDir, input, parse = parseTranscript) {
+  if (!input.transcript_path)
+    return null;
+  const parsed = parse(input.transcript_path);
+  if (!parsed)
+    return null;
+  const prompt = parsed.lastUserPrompt ?? "";
+  if (!prompt)
+    return null;
+  const response = parsed.lastAssistantText ?? "";
+  const turn = {
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    prompt,
+    // full — no truncation
+    ...response ? { response } : {},
+    // full — no truncation
+    ...input.reason ? { stop_reason: input.reason } : {}
+  };
+  appendBufferedTurn(projectDir, turn);
+  return turn;
+}
+async function postTurnFeedback(projectDir, input, fetchImpl = fetch) {
+  const token = await resolveUsableSessionToken(projectDir, fetchImpl);
+  if (!token)
+    return false;
+  const url = `${apiV1Base(token.base_url)}/turn-feedback`;
+  const body = JSON.stringify({
+    client_type: "claude-code",
+    ...input.reason ? { stop_reason: input.reason } : {}
+  });
+  try {
+    const res = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...bearerHeader(token)
+      },
+      body,
+      signal: AbortSignal.timeout(FEEDBACK_TIMEOUT_MS)
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+async function runStopFeedback(input, fetchImpl = fetch, projectDir = resolveProjectDir(), parse = parseTranscript) {
+  try {
+    captureBothSidesTurn(projectDir, input, parse);
+  } catch {
+  }
+  try {
+    await postTurnFeedback(projectDir, input, fetchImpl);
+  } catch {
+  }
+}
+async function readStdinJson() {
+  const chunks = [];
+  await new Promise((resolve) => {
+    const t = setTimeout(resolve, 1e3);
+    process.stdin.on("data", (c) => chunks.push(c));
+    process.stdin.on("end", () => {
+      clearTimeout(t);
+      resolve();
+    });
+    process.stdin.on("error", () => {
+      clearTimeout(t);
+      resolve();
+    });
+    process.stdin.resume();
+  });
+  try {
+    const raw = Buffer.concat(chunks).toString("utf8").trim();
+    if (!raw)
+      return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+async function main() {
+  const input = await readStdinJson();
+  await runStopFeedback(input);
+  process.stdout.write("{}");
+}
+if (process.env.GRAMATR_STOP_FEEDBACK_NO_AUTOSTART !== "1") {
+  main().catch(() => process.stdout.write("{}"));
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  captureBothSidesTurn,
+  main,
+  postTurnFeedback,
+  runStopFeedback
+});
