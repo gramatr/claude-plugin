@@ -1,0 +1,124 @@
+{
+  "description": "grāmatr hooks. SessionStart writes git context to .gramatr/git-context.json via project-init.js (zero-auth, zero-network). UserPromptSubmit routes prompts via route_request on the HTTP gramatr server. Stop records turn feedback via record_turn_feedback. SessionEnd auto-saves a structured handoff via auto_save_handoff — the adapter composes the 5-section handoff server-side from session state so it can never be forgotten or silently truncated (#2768 PR-Hook-2 / #3260). The architecture is client-agnostic (v0.20.18 #2756) — Claude Code is one consumer; Cursor, Codex, ChatGPT plugins drop in later by passing their own client_session_id with a matching client_type literal. See #2768 for the full 5-hook queue. When the context window nears capacity, the UserPromptSubmit hook injects a MANDATORY /compact directive instead of silently blocking compaction.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/project-init.js"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/init-identity.js"
+            ]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/compact-advisor.js"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/version-cue.js"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/ups-route.js"
+            ]
+          },
+          {
+            "type": "mcp_tool",
+            "server": "plugin:gramatr:gramatr",
+            "tool": "route_request",
+            "input": {
+              "prompt": "${prompt}",
+              "client_session_id": "${session_id}",
+              "client_type": "claude-code",
+              "client_version": "0.23.2",
+              "hook_response": true,
+              "hook_event_name": "UserPromptSubmit"
+            }
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/track-tokens.js"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/stop-feedback.js"
+            ]
+          },
+          {
+            "type": "mcp_tool",
+            "server": "plugin:gramatr:gramatr",
+            "tool": "record_turn_feedback",
+            "input": {
+              "client_session_id": "${session_id}",
+              "client_type": "claude-code",
+              "stop_reason": "${reason}",
+              "hook_response": true
+            }
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/session-end-seal.js"
+            ]
+          },
+          {
+            "type": "mcp_tool",
+            "server": "plugin:gramatr:gramatr",
+            "tool": "auto_save_handoff",
+            "input": {
+              "client_session_id": "${session_id}",
+              "client_type": "claude-code",
+              "reason": "${reason}",
+              "hook_response": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
