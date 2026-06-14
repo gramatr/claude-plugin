@@ -1,0 +1,21 @@
+{
+  "name": "gramatr",
+  "description": "Real-time intelligent context engineering that makes every prompt cheaper, faster, and context-aware.",
+  "owner": {
+    "name": "gramatr",
+    "email": "support@gramatr.com",
+    "url": "https://gramatr.com"
+  },
+  "plugins": [
+    {
+      "name": "gramatr",
+      "source": "./gramatr",
+      "description": "grāmatr for Claude Code — HTTP transport (browser OAuth)."
+    },
+    {
+      "name": "gramatr-headless",
+      "source": "./gramatr-headless",
+      "description": "grāmatr for headless/SSH/remote/devcontainer sessions — device-code auth, no browser loopback."
+    }
+  ]
+}
