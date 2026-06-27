@@ -48,7 +48,7 @@
               "prompt": "${prompt}",
               "client_session_id": "${session_id}",
               "client_type": "claude-code",
-              "client_version": "0.26.15",
+              "client_version": "0.26.16",
               "hook_response": true,
               "hook_event_name": "UserPromptSubmit"
             }
