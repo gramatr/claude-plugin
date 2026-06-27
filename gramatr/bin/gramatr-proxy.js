@@ -317,6 +317,15 @@ function macosRead() {
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
 }
+function macosDelete() {
+  runKeyringCmd("security", [
+    "delete-generic-password",
+    "-a",
+    KEYRING_ACCOUNT,
+    "-s",
+    KEYRING_SERVICE
+  ]);
+}
 function secretToolWrite(secret) {
   const res = runKeyringCmd("secret-tool", ["store", "--label", KEYRING_SERVICE, "service", KEYRING_SERVICE, "account", KEYRING_ACCOUNT], secret);
   return res !== null;
@@ -333,6 +342,15 @@ function secretToolRead() {
     return null;
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
+}
+function secretToolDelete() {
+  runKeyringCmd("secret-tool", [
+    "clear",
+    "service",
+    KEYRING_SERVICE,
+    "account",
+    KEYRING_ACCOUNT
+  ]);
 }
 function windowsWrite(secret) {
   const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
@@ -351,6 +369,10 @@ function windowsRead() {
     return null;
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
+}
+function windowsDelete() {
+  const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
+  runKeyringCmd("cmdkey", [`/delete:${target}`]);
 }
 function fileWrite(record) {
   try {
@@ -379,6 +401,12 @@ function fileRead() {
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
+  }
+}
+function fileDelete() {
+  try {
+    (0, import_node_fs3.rmSync)(getFileBackendPath(), { force: true });
+  } catch {
   }
 }
 function nativeBackend() {
@@ -428,6 +456,21 @@ function readMintCredential() {
   } catch {
     return null;
   }
+}
+function deleteMintCredential() {
+  try {
+    macosDelete();
+  } catch {
+  }
+  try {
+    secretToolDelete();
+  } catch {
+  }
+  try {
+    windowsDelete();
+  } catch {
+  }
+  fileDelete();
 }
 function isMintCredentialUsable(record, now = Date.now()) {
   if (!record)
@@ -587,6 +630,7 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
     return { status: "error" };
   }
   if (res.status === 401) {
+    await deleteMintCredential();
     return { status: "denied" };
   }
   if (!res.ok) {
@@ -620,8 +664,8 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.26.11") {
-      return "0.26.11";
+    if ("0.26.13") {
+      return "0.26.13";
     }
   } catch {
   }

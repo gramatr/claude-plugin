@@ -72,9 +72,9 @@ function getSessionRegistryTtlDaysFromEnv(defaultDays) {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : defaultDays;
 }
-function getGramatrDaemonSocketFromEnv() {
-  const s = process.env.GRAMATR_DAEMON_SOCKET;
-  return s && s.length > 0 ? s : null;
+function isKeyringFileOnlyFromEnv() {
+  const raw = process.env.GRAMATR_KEYRING_FILE_ONLY;
+  return raw === "1" || raw === "true";
 }
 var init_config_runtime = __esm({
   "dist/config-runtime.js"() {
@@ -353,6 +353,16 @@ var init_retry = __esm({
 });
 
 // dist/proxy/remote-client.js
+var remote_client_exports = {};
+__export(remote_client_exports, {
+  callRemoteTool: () => callRemoteTool,
+  fetchCurrentUser: () => fetchCurrentUser,
+  fetchRemotePrompt: () => fetchRemotePrompt,
+  fetchRemotePromptList: () => fetchRemotePromptList,
+  fetchRemoteResource: () => fetchRemoteResource,
+  fetchRemoteResourceList: () => fetchRemoteResourceList,
+  fetchRemoteToolList: () => fetchRemoteToolList
+});
 function parseRetryAfterMs(headerValue) {
   if (!headerValue)
     return void 0;
@@ -412,6 +422,118 @@ async function callRemoteTool(toolName, args, sessionContext) {
     return body.result;
   };
   return withBackoff(attempt, remoteBackoffOpts);
+}
+async function fetchRemoteToolList() {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "tools/list",
+    params: {}
+  };
+  const response = await postToRemote(payload);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch tool list: HTTP ${response.status}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Tool list error: ${body.error.message}`);
+  }
+  return body.result;
+}
+async function fetchRemotePromptList() {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "prompts/list",
+    params: {}
+  };
+  const response = await postToRemote(payload);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch prompt list: HTTP ${response.status}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Prompt list error: ${body.error.message}`);
+  }
+  return body.result;
+}
+async function fetchRemotePrompt(name, args) {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "prompts/get",
+    params: { name, arguments: args }
+  };
+  const response = await postToRemote(payload);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch prompt: HTTP ${response.status}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Prompt error: ${body.error.message}`);
+  }
+  return body.result;
+}
+async function fetchRemoteResourceList() {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "resources/list",
+    params: {}
+  };
+  const response = await postToRemote(payload);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch resource list: HTTP ${response.status}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Resource list error: ${body.error.message}`);
+  }
+  return body.result;
+}
+async function fetchRemoteResource(uri, sessionContext) {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "resources/read",
+    params: { uri }
+  };
+  const response = await postToRemote(payload, sessionContext);
+  if (!response.ok) {
+    throw new Error(`Failed to read resource: HTTP ${response.status}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Resource read error: ${body.error.message}`);
+  }
+  return body.result;
+}
+async function fetchCurrentUser() {
+  const serverUrl = getServerUrl();
+  const token = getToken();
+  if (!token)
+    return null;
+  const baseUrl = serverUrl.replace(/\/mcp\/?$/, "");
+  const url = `${baseUrl}/api/v1/users/me`;
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Accept": "application/json"
+      },
+      signal: AbortSignal.timeout(5e3)
+    });
+    if (!response.ok)
+      return null;
+    const body = await response.json();
+    if (body !== null && typeof body === "object" && "user_id" in body && "actor_role" in body && "entitlement_level" in body) {
+      return body;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 async function postToRemote(payload, sessionContext) {
   const serverUrl = getServerUrl();
@@ -503,373 +625,6 @@ var init_remote_client = __esm({
   }
 });
 
-// dist/daemon/startup.js
-function getGramatrDir() {
-  return getGramatrDirFromEnv() ?? (0, import_node_path6.join)(getHomeDir(), ".gramatr");
-}
-function getDaemonSocketPath() {
-  const envOverride = getGramatrDaemonSocketFromEnv();
-  if (envOverride)
-    return envOverride;
-  if (process.platform === "win32")
-    return "\\\\.\\pipe\\gramatr-daemon";
-  return (0, import_node_path6.join)(getGramatrDir(), "daemon.sock");
-}
-function getDaemonHttpPortPath() {
-  return (0, import_node_path6.join)(getGramatrDir(), "daemon.port");
-}
-function getDaemonTokenPath() {
-  return (0, import_node_path6.join)(getGramatrDir(), "daemon.token");
-}
-function readDaemonToken() {
-  try {
-    const token = (0, import_node_fs6.readFileSync)(getDaemonTokenPath(), "utf8").trim();
-    return token || null;
-  } catch {
-    return null;
-  }
-}
-function readHttpCredentials() {
-  try {
-    const port = parseInt((0, import_node_fs6.readFileSync)(getDaemonHttpPortPath(), "utf8").trim(), 10);
-    const token = (0, import_node_fs6.readFileSync)(getDaemonTokenPath(), "utf8").trim();
-    if (!Number.isFinite(port) || port <= 0 || !token)
-      return null;
-    return { port, token };
-  } catch {
-    return null;
-  }
-}
-var import_node_fs6, import_node_path6;
-var init_startup = __esm({
-  "dist/daemon/startup.js"() {
-    "use strict";
-    import_node_fs6 = require("node:fs");
-    import_node_path6 = require("node:path");
-    init_config_runtime();
-  }
-});
-
-// dist/daemon/ipc-protocol.js
-var DAEMON_UNAVAILABLE;
-var init_ipc_protocol = __esm({
-  "dist/daemon/ipc-protocol.js"() {
-    "use strict";
-    DAEMON_UNAVAILABLE = Symbol("DAEMON_UNAVAILABLE");
-  }
-});
-
-// dist/proxy/local-client.js
-var local_client_exports = {};
-__export(local_client_exports, {
-  _resetClientForTest: () => _resetClientForTest,
-  callTool: () => callTool,
-  callViaDaemon: () => callViaDaemon,
-  dbWriteViaDaemon: () => dbWriteViaDaemon,
-  getComposedAgent: () => getComposedAgent,
-  isLocalHooksServerAvailable: () => isLocalHooksServerAvailable,
-  listComposedAgents: () => listComposedAgents,
-  pullSessionContextFromLocal: () => pullSessionContextFromLocal,
-  pushSessionContextToLocal: () => pushSessionContextToLocal,
-  storeComposedAgent: () => storeComposedAgent,
-  sweepExpiredAgents: () => sweepExpiredAgents,
-  wasDaemonAvailable: () => wasDaemonAvailable
-});
-async function retryDaemonTier(tier) {
-  try {
-    return await withBackoff(async () => {
-      const result = await tier();
-      if (result === DAEMON_UNAVAILABLE)
-        throw DAEMON_RETRY;
-      return result;
-    }, { ...DAEMON_BACKOFF, isRetryable: (err) => err === DAEMON_RETRY });
-  } catch (err) {
-    if (err === DAEMON_RETRY)
-      return DAEMON_UNAVAILABLE;
-    throw err;
-  }
-}
-function wasDaemonAvailable() {
-  return _lastCallUsedDaemon;
-}
-async function openSocketWithTimeout(path2, timeoutMs) {
-  return new Promise((resolve3, reject) => {
-    const socket = (0, import_node_net.createConnection)(path2);
-    const timer = setTimeout(() => {
-      socket.destroy();
-      reject(new Error("connect timeout"));
-    }, timeoutMs);
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      resolve3(socket);
-    });
-    socket.once("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-async function readOneLine(socket, timeoutMs) {
-  return new Promise((resolve3, reject) => {
-    const rl = (0, import_node_readline.createInterface)({ input: socket, crlfDelay: Infinity });
-    const timer = setTimeout(() => {
-      rl.close();
-      reject(new Error("read timeout"));
-    }, timeoutMs);
-    rl.once("line", (line) => {
-      clearTimeout(timer);
-      rl.close();
-      resolve3(line);
-    });
-    rl.once("close", () => {
-      clearTimeout(timer);
-      reject(new Error("socket closed"));
-    });
-    rl.once("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-async function callViaDaemon(method, params) {
-  const sockPath = getDaemonSocketPath();
-  let socket;
-  try {
-    socket = await openSocketWithTimeout(sockPath, 8);
-    const socketToken = readDaemonToken();
-    if (!socketToken)
-      return DAEMON_UNAVAILABLE;
-    socket.write(`AUTH ${socketToken}
-`);
-    const req = {
-      jsonrpc: "2.0",
-      id: ++_requestId,
-      method,
-      params
-    };
-    socket.write(JSON.stringify(req) + "\n");
-    const line = await readOneLine(socket, 8e3);
-    const resp = JSON.parse(line);
-    if (resp.error) {
-      throw new Error(resp.error.message);
-    }
-    return resp.result;
-  } catch {
-    return DAEMON_UNAVAILABLE;
-  } finally {
-    try {
-      socket?.destroy();
-    } catch {
-    }
-  }
-}
-async function callViaLocalHttp(method, params) {
-  const creds = readHttpCredentials();
-  if (!creds)
-    return DAEMON_UNAVAILABLE;
-  try {
-    const req = {
-      jsonrpc: "2.0",
-      id: ++_requestId,
-      method,
-      params
-    };
-    const response = await fetch(`http://127.0.0.1:${creds.port}/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${creds.token}`
-      },
-      body: JSON.stringify(req),
-      signal: AbortSignal.timeout(9e3)
-    });
-    if (!response.ok)
-      return DAEMON_UNAVAILABLE;
-    const resp = await response.json();
-    if (resp.error) {
-      throw new Error(resp.error.message);
-    }
-    return resp.result;
-  } catch {
-    return DAEMON_UNAVAILABLE;
-  }
-}
-function spawnDaemon() {
-  try {
-    let binaryPath;
-    try {
-      const home = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "";
-      const configPath2 = (0, import_node_path7.join)(home, ".gramatr.json");
-      const config = JSON.parse((0, import_node_fs7.readFileSync)(configPath2, "utf8"));
-      if (typeof config["gramatr_binary"] === "string" && config["gramatr_binary"]) {
-        binaryPath = config["gramatr_binary"];
-      }
-    } catch {
-    }
-    if (!binaryPath) {
-      try {
-        const result = (0, import_node_child_process3.spawnSync)(process.platform === "win32" ? "where" : "which", ["gramatr"], { encoding: "utf8", timeout: 1e3 });
-        const found = result.stdout?.trim();
-        if (found)
-          binaryPath = found;
-      } catch {
-      }
-    }
-    const [cmd, ...args] = binaryPath ? [binaryPath, "daemon", "start"] : ["npx", "--yes", "@gramatr/mcp", "daemon", "start"];
-    const child = (0, import_node_child_process3.spawn)(cmd, args, {
-      detached: true,
-      stdio: "ignore"
-    });
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function waitForDaemonSocket(timeoutMs) {
-  const socketPath = getDaemonSocketPath();
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if ((0, import_node_fs7.existsSync)(socketPath))
-      return true;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return false;
-}
-async function tryRestartDaemon() {
-  if (_restartAttempted)
-    return false;
-  _restartAttempted = true;
-  const spawned = spawnDaemon();
-  if (!spawned)
-    return false;
-  return waitForDaemonSocket(3e3);
-}
-function isLocalHooksServerAvailable() {
-  return (0, import_node_fs7.existsSync)(getDaemonSocketPath());
-}
-async function callTool(name, args, hookSessionId) {
-  _lastCallUsedDaemon = true;
-  const sessionId = hookSessionId ?? process.env["GRAMATR_HOOK_SESSION_ID"];
-  const ipcParams = { name, arguments: args };
-  if (sessionId)
-    ipcParams["session_id"] = sessionId;
-  const socketResult = await retryDaemonTier(() => callViaDaemon("tool/call", ipcParams));
-  if (socketResult !== DAEMON_UNAVAILABLE) {
-    return socketResult;
-  }
-  const httpResult = await retryDaemonTier(() => callViaLocalHttp("tool/call", ipcParams));
-  if (httpResult !== DAEMON_UNAVAILABLE) {
-    return httpResult;
-  }
-  const restarted = await tryRestartDaemon();
-  if (restarted) {
-    const retryResult = await callViaDaemon("tool/call", ipcParams);
-    if (retryResult !== DAEMON_UNAVAILABLE) {
-      return retryResult;
-    }
-  }
-  _lastCallUsedDaemon = false;
-  try {
-    const result = await callRemoteTool(name, args);
-    return result;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      content: [{ type: "text", text: `gramatr hook: tool call failed \u2014 ${message}` }],
-      isError: true
-    };
-  }
-}
-async function pushSessionContextToLocal(ctx) {
-  if (ctx === null || typeof ctx !== "object")
-    return false;
-  const sessionId = ctx.session_id;
-  if (!sessionId)
-    return false;
-  const result = await callViaDaemon("session/context/set", {
-    session_id: sessionId,
-    context: ctx
-  });
-  return result !== DAEMON_UNAVAILABLE;
-}
-async function dbWriteViaDaemon(table, operation, record) {
-  const result = await callViaDaemon("db/write", { table, operation, record });
-  return result !== DAEMON_UNAVAILABLE;
-}
-async function pullSessionContextFromLocal(sessionId) {
-  const result = await callViaDaemon("session/context/get", { session_id: sessionId });
-  if (result === DAEMON_UNAVAILABLE)
-    return null;
-  const typed = result;
-  if (typed.value === null || typed.value === void 0)
-    return null;
-  return typed.value;
-}
-async function storeComposedAgent(uuid, ownerId, name, definition, expiresAt) {
-  const result = await callViaDaemon("agent/store", {
-    uuid,
-    owner_id: ownerId,
-    name,
-    definition: JSON.stringify(definition),
-    expires_at: expiresAt ?? null
-  });
-  if (result !== DAEMON_UNAVAILABLE) {
-    const r = result;
-    return r?.ok ? uuid : null;
-  }
-  return uuid;
-}
-async function getComposedAgent(uuid) {
-  const daemonResult = await callViaDaemon("agent/get", { uuid });
-  if (daemonResult !== DAEMON_UNAVAILABLE && daemonResult !== null) {
-    return daemonResult;
-  }
-  try {
-    const result = await callRemoteTool("get_composed_agent", { composition_id: uuid });
-    const r = result;
-    if (r?.content?.[0]?.text) {
-      const parsed = JSON.parse(r.content[0].text);
-      if (parsed && !parsed.error)
-        return parsed;
-    }
-  } catch {
-  }
-  return null;
-}
-async function listComposedAgents(ownerId) {
-  const result = await callViaDaemon("agent/list", { owner_id: ownerId });
-  if (result === DAEMON_UNAVAILABLE)
-    return [];
-  return result ?? [];
-}
-async function sweepExpiredAgents() {
-  await callViaDaemon("agent/expire", {});
-}
-function _resetClientForTest() {
-  _requestId = 0;
-}
-var import_node_net, import_node_readline, import_node_fs7, import_node_path7, import_node_child_process3, DAEMON_BACKOFF, DAEMON_RETRY, _requestId, _lastCallUsedDaemon, _restartAttempted;
-var init_local_client = __esm({
-  "dist/proxy/local-client.js"() {
-    "use strict";
-    import_node_net = require("node:net");
-    import_node_readline = require("node:readline");
-    import_node_fs7 = require("node:fs");
-    import_node_path7 = require("node:path");
-    import_node_child_process3 = require("node:child_process");
-    init_remote_client();
-    init_retry();
-    init_startup();
-    init_ipc_protocol();
-    DAEMON_BACKOFF = { attempts: 3, baseMs: 30, capMs: 120 };
-    DAEMON_RETRY = Symbol("DAEMON_RETRY");
-    _requestId = 0;
-    _lastCallUsedDaemon = true;
-    _restartAttempted = false;
-  }
-});
-
 // dist/hooks/lib/tool-envelope.js
 var tool_envelope_exports = {};
 __export(tool_envelope_exports, {
@@ -904,8 +659,8 @@ var init_tool_envelope = __esm({
 });
 
 // dist/bin/init-identity.js
-var import_node_fs9 = require("node:fs");
-var import_node_path9 = require("node:path");
+var import_node_fs8 = require("node:fs");
+var import_node_path8 = require("node:path");
 
 // dist/user-config.js
 var import_node_fs = require("node:fs");
@@ -1335,7 +1090,7 @@ function resolveSessionRoot(opts) {
 }
 
 // dist/hooks/lib/resolve-home.js
-var import_node_child_process4 = require("node:child_process");
+var import_node_child_process3 = require("node:child_process");
 
 // dist/hooks/lib/git-remote-parser.js
 function parseGitRemote(url) {
@@ -1429,7 +1184,7 @@ function defaultGetGitRemote(projectDir) {
   if (fromConfig)
     return fromConfig;
   try {
-    const out = (0, import_node_child_process4.spawnSync)("git", ["remote", "get-url", "origin"], {
+    const out = (0, import_node_child_process3.spawnSync)("git", ["remote", "get-url", "origin"], {
       cwd: projectDir,
       encoding: "utf8"
     }).stdout?.trim();
@@ -1531,9 +1286,9 @@ async function resolveProjectHoming(args) {
 }
 async function defaultResolveProject(args) {
   try {
-    const { callTool: callTool2 } = await Promise.resolve().then(() => (init_local_client(), local_client_exports));
+    const { callRemoteTool: callTool } = await Promise.resolve().then(() => (init_remote_client(), remote_client_exports));
     const { extractToolPayload: extractToolPayload2 } = await Promise.resolve().then(() => (init_tool_envelope(), tool_envelope_exports));
-    const raw = await callTool2("resolve_project", {
+    const raw = await callTool("resolve_project", {
       action: "resolve",
       slug: args.slug
     });
@@ -1548,13 +1303,13 @@ async function defaultResolveProject(args) {
 }
 
 // dist/hooks/lib/session-rest-token.js
-var import_node_fs8 = require("node:fs");
-var import_node_path8 = require("node:path");
+var import_node_fs6 = require("node:fs");
+var import_node_path6 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var SESSION_FILE = ".session";
 var SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
 function getSessionTokenPath(projectDir) {
-  return (0, import_node_path8.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
+  return (0, import_node_path6.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
@@ -1571,17 +1326,17 @@ function normalizeRestTokenBlock(block) {
   return null;
 }
 function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR2);
-  if (!(0, import_node_fs8.existsSync)(dir)) {
-    (0, import_node_fs8.mkdirSync)(dir, { recursive: true, mode: 448 });
+  const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR2);
+  if (!(0, import_node_fs6.existsSync)(dir)) {
+    (0, import_node_fs6.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
   const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs8.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs8.renameSync)(tmp, dest);
+  (0, import_node_fs6.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs6.renameSync)(tmp, dest);
   try {
-    (0, import_node_fs8.chmodSync)(dest, 384);
+    (0, import_node_fs6.chmodSync)(dest, 384);
   } catch {
   }
 }
@@ -1591,6 +1346,112 @@ function persistBootstrapRestToken(projectDir, block) {
     return false;
   writeSessionToken(projectDir, file);
   return true;
+}
+
+// dist/hooks/lib/mint-credential-store.js
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs7 = require("node:fs");
+var import_node_path7 = require("node:path");
+init_config_runtime();
+var spawnImpl = import_node_child_process4.spawnSync;
+var platformImpl = null;
+function currentPlatform() {
+  return platformImpl ?? process.platform;
+}
+var KEYRING_SERVICE = "gramatr-mint-credential";
+var KEYRING_ACCOUNT = "gramatr";
+var FILE_BACKEND_NAME = ".mint-credential";
+var KEYRING_CMD_TIMEOUT_MS = 3e3;
+function getFileBackendPath() {
+  return (0, import_node_path7.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
+}
+function fileBackendForced() {
+  return isKeyringFileOnlyFromEnv();
+}
+function runKeyringCmd(cmd, args, input) {
+  try {
+    const res = spawnImpl(cmd, args, {
+      timeout: KEYRING_CMD_TIMEOUT_MS,
+      encoding: "utf8",
+      input,
+      // Never inherit stdio — keep secret bytes off the terminal.
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (!res || res.error || res.status !== 0)
+      return null;
+    return { stdout: res.stdout ?? "" };
+  } catch {
+    return null;
+  }
+}
+function macosWrite(secret) {
+  const res = runKeyringCmd("security", [
+    "add-generic-password",
+    "-a",
+    KEYRING_ACCOUNT,
+    "-s",
+    KEYRING_SERVICE,
+    "-U",
+    "-w",
+    secret
+  ]);
+  return res !== null;
+}
+function secretToolWrite(secret) {
+  const res = runKeyringCmd("secret-tool", ["store", "--label", KEYRING_SERVICE, "service", KEYRING_SERVICE, "account", KEYRING_ACCOUNT], secret);
+  return res !== null;
+}
+function windowsWrite(secret) {
+  const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
+  const res = runKeyringCmd("cmdkey", [
+    `/generic:${target}`,
+    `/user:${KEYRING_ACCOUNT}`,
+    `/pass:${secret}`
+  ]);
+  return res !== null;
+}
+function fileWrite(record) {
+  try {
+    const dir = (0, import_node_path7.join)(getHomeDir(), ".gramatr");
+    if (!(0, import_node_fs7.existsSync)(dir))
+      (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dest = getFileBackendPath();
+    const tmp = `${dest}.tmp.${process.pid}`;
+    (0, import_node_fs7.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs7.renameSync)(tmp, dest);
+    try {
+      (0, import_node_fs7.chmodSync)(dest, 384);
+    } catch {
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function nativeBackend() {
+  if (fileBackendForced())
+    return "file";
+  switch (currentPlatform()) {
+    case "darwin":
+      return "macos";
+    case "win32":
+      return "windows";
+    case "linux":
+      return "secret-tool";
+    default:
+      return "file";
+  }
+}
+function writeMintCredential(record) {
+  const payload = JSON.stringify(record);
+  const backend = nativeBackend();
+  if (backend === "macos" && macosWrite(payload))
+    return "macos";
+  if (backend === "secret-tool" && secretToolWrite(payload))
+    return "secret-tool";
+  if (backend === "windows" && windowsWrite(payload))
+    return "windows";
+  return fileWrite(payload) ? "file" : "none";
 }
 
 // dist/bin/init-identity.js
@@ -1616,15 +1477,15 @@ function getToken2() {
     return envToken;
   if (PLUGIN_DATA_DIR) {
     try {
-      const cfg = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path9.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs8.readFileSync)((0, import_node_path8.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
     }
   }
   try {
-    const credFile = (0, import_node_path9.resolve)(HOME_DIR, ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs9.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path8.resolve)(HOME_DIR, ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs8.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -1722,13 +1583,16 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
       // #3536 follow-up — carry issued_at through to .session when present.
       ...typeof rt.issued_at === "string" && rt.issued_at ? { issued_at: rt.issued_at } : {}
     } : void 0;
+    const mc = parsed.mint_credential;
+    const mintCredential = mc && typeof mc.token === "string" && mc.token && typeof mc.expires_at === "string" && mc.expires_at && typeof mc.device_id === "string" && mc.device_id ? { token: mc.token, expires_at: mc.expires_at, device_id: mc.device_id } : void 0;
     const sessionPayload = {
       user,
       gramatr_session_id: typeof parsed.gramatr_session_id === "string" ? parsed.gramatr_session_id : void 0,
       gramatr_project_id: typeof parsed.gramatr_project_id === "string" ? parsed.gramatr_project_id : void 0,
       resolved: typeof parsed.resolved === "boolean" ? parsed.resolved : void 0,
       project_slug: typeof parsed.project_slug === "string" ? parsed.project_slug : null,
-      rest_token: restToken
+      rest_token: restToken,
+      mint_credential: mintCredential
     };
     if (user && (user.id || user.email) || sessionPayload.gramatr_session_id) {
       return sessionPayload;
@@ -1752,20 +1616,20 @@ function writeSessionJson(payload, clientSessionId) {
     client_type: "claude-code",
     written_at: (/* @__PURE__ */ new Date()).toISOString()
   };
-  const dir = (0, import_node_path9.join)(PROJECT_DIR, ".gramatr");
-  const target = (0, import_node_path9.join)(dir, "session.json");
+  const dir = (0, import_node_path8.join)(PROJECT_DIR, ".gramatr");
+  const target = (0, import_node_path8.join)(dir, "session.json");
   try {
-    const prev = JSON.parse((0, import_node_fs9.readFileSync)(target, "utf8"));
+    const prev = JSON.parse((0, import_node_fs8.readFileSync)(target, "utf8"));
     if (prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type) {
       return;
     }
   } catch {
   }
   try {
-    (0, import_node_fs9.mkdirSync)(dir, { recursive: true });
-    const tmp = (0, import_node_path9.join)(dir, `session.json.tmp.${process.pid}`);
-    (0, import_node_fs9.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
-    (0, import_node_fs9.renameSync)(tmp, target);
+    (0, import_node_fs8.mkdirSync)(dir, { recursive: true });
+    const tmp = (0, import_node_path8.join)(dir, `session.json.tmp.${process.pid}`);
+    (0, import_node_fs8.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    (0, import_node_fs8.renameSync)(tmp, target);
   } catch {
   }
   try {
@@ -1873,6 +1737,12 @@ async function main() {
   if (payload.rest_token) {
     try {
       persistBootstrapRestToken(PROJECT_DIR, payload.rest_token);
+    } catch {
+    }
+  }
+  if (payload.mint_credential) {
+    try {
+      writeMintCredential(payload.mint_credential);
     } catch {
     }
   }

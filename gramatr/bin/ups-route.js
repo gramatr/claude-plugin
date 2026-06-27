@@ -60,13 +60,6 @@ var init_config_runtime = __esm({
   }
 });
 
-// dist/hooks/generated/hook-timeouts.js
-var init_hook_timeouts = __esm({
-  "dist/hooks/generated/hook-timeouts.js"() {
-    "use strict";
-  }
-});
-
 // dist/hooks/lib/hook-promotion-telemetry.js
 var hook_promotion_telemetry_exports = {};
 __export(hook_promotion_telemetry_exports, {
@@ -411,12 +404,10 @@ init_config_runtime();
 var import_fs = require("fs");
 var import_path = require("path");
 init_config_runtime();
-init_hook_timeouts();
 
 // dist/hooks/lib/hook-state.js
 var import_node_sqlite = require("node:sqlite");
 init_config_runtime();
-init_hook_timeouts();
 
 // dist/hooks/lib/gramatr-hook-utils.js
 var HOME = getHomeDir();
