@@ -1,7 +1,7 @@
 {
   "name": "gramatr-headless",
   "displayName": "grāmatr (headless)",
-  "version": "0.26.13",
+  "version": "0.26.14",
   "description": "grāmatr for headless/SSH/remote/devcontainer sessions — device-code auth, no browser loopback.",
   "author": {
     "name": "gramatr",
