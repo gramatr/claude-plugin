@@ -48,7 +48,7 @@
               "prompt": "${prompt}",
               "client_session_id": "${session_id}",
               "client_type": "claude-code",
-              "client_version": "0.29.1",
+              "client_version": "0.29.2",
               "hook_response": true,
               "hook_event_name": "UserPromptSubmit"
             }
@@ -127,6 +127,20 @@
               "reason": "${trigger}",
               "hook_response": true
             }
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/git-commit-handoff.js"
+            ]
           }
         ]
       }
