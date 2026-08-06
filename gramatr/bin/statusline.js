@@ -362,6 +362,14 @@ function getSessionId() {
     return null;
   }
 }
+function cacheStatuslineText(text) {
+  try {
+    const gmtrDir = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr");
+    (0, import_node_fs3.mkdirSync)(gmtrDir, { recursive: true });
+    (0, import_node_fs3.writeFileSync)((0, import_node_path3.join)(gmtrDir, "statusline.txt"), text, "utf8");
+  } catch {
+  }
+}
 async function fetchAndWrite(url, headers) {
   try {
     const res = await fetch(url, {
@@ -372,8 +380,10 @@ async function fetchAndWrite(url, headers) {
     if (!res.ok)
       return false;
     const text = await res.text();
-    if (text)
+    if (text) {
       process.stdout.write(text);
+      cacheStatuslineText(text);
+    }
     return true;
   } catch {
     return false;
@@ -398,11 +408,26 @@ async function tryLegacy() {
   const url = `${REMOTE_URL}/api/v1/statusline/${encodeURIComponent(sessionId)}`;
   return fetchAndWrite(url, {});
 }
+function tryFileFallback() {
+  const path = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "statusline.txt");
+  if (!(0, import_node_fs3.existsSync)(path))
+    return false;
+  try {
+    const text = (0, import_node_fs3.readFileSync)(path, "utf8").trim();
+    if (!text)
+      return false;
+    process.stdout.write(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 async function main() {
-  const handled = await tryAuthenticated();
-  if (handled)
+  if (await tryAuthenticated())
     return;
-  await tryLegacy();
+  if (await tryLegacy())
+    return;
+  tryFileFallback();
 }
 main().catch(() => void 0);
 async function runStatusline(_args = []) {
