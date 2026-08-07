@@ -54,6 +54,15 @@ function getSessionRegistryTtlDaysFromEnv(defaultDays) {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : defaultDays;
 }
+function getClaudeModelFromEnv() {
+  const anthropic = process.env.ANTHROPIC_MODEL;
+  if (anthropic && anthropic.length > 0)
+    return anthropic;
+  const claude = process.env.CLAUDE_MODEL;
+  if (claude && claude.length > 0)
+    return claude;
+  return null;
+}
 var init_config_runtime = __esm({
   "dist/config-runtime.js"() {
     "use strict";
@@ -131,7 +140,7 @@ function projectIdFromAud(aud) {
 }
 function debugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path5.join)(home, ".gramatr", "debug");
+  return (0, import_node_path6.join)(home, ".gramatr", "debug");
 }
 function recordTurn1Arming(args) {
   const sample = {
@@ -145,19 +154,19 @@ function recordTurn1Arming(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs5.existsSync)(dir))
-      (0, import_node_fs5.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path5.join)(dir, "turn1-arming.jsonl");
+    if (!(0, import_node_fs6.existsSync)(dir))
+      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path6.join)(dir, "turn1-arming.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs5.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs5.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs5.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -171,51 +180,61 @@ function recordBootstrapRecovered(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs5.existsSync)(dir))
-      (0, import_node_fs5.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path5.join)(dir, "bootstrap-recovered.jsonl");
+    if (!(0, import_node_fs6.existsSync)(dir))
+      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path6.join)(dir, "bootstrap-recovered.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs5.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs5.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs5.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
 function appendHookPromotionSample(sample) {
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs5.existsSync)(dir))
-      (0, import_node_fs5.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path5.join)(dir, "hook-promotion.jsonl");
-    const lastPath = (0, import_node_path5.join)(dir, "last-sample.json");
+    if (!(0, import_node_fs6.existsSync)(dir))
+      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path6.join)(dir, "hook-promotion.jsonl");
+    const lastPath = (0, import_node_path6.join)(dir, "last-sample.json");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs5.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs5.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs5.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
-    (0, import_node_fs5.writeFileSync)(lastPath, JSON.stringify(sample, null, 2), "utf8");
+    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs6.writeFileSync)(lastPath, JSON.stringify(sample, null, 2), "utf8");
   } catch {
   }
 }
-var import_node_fs5, import_node_path5, MAX_SAMPLES;
+var import_node_fs6, import_node_path6, MAX_SAMPLES;
 var init_hook_promotion_telemetry = __esm({
   "dist/hooks/lib/hook-promotion-telemetry.js"() {
     "use strict";
-    import_node_fs5 = require("node:fs");
-    import_node_path5 = require("node:path");
+    import_node_fs6 = require("node:fs");
+    import_node_path6 = require("node:path");
     init_config_runtime();
     MAX_SAMPLES = 200;
+  }
+});
+
+// dist/server/auth.js
+var RENEWAL_WINDOW_MS;
+var init_auth = __esm({
+  "dist/server/auth.js"() {
+    "use strict";
+    init_config_runtime();
+    RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
   }
 });
 
@@ -396,8 +415,8 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Da
 }
 
 // dist/hooks/lib/bootstrap-recovery.js
-var import_node_fs2 = require("node:fs");
-var import_node_path2 = require("node:path");
+var import_node_fs3 = require("node:fs");
+var import_node_path3 = require("node:path");
 init_config_runtime();
 
 // dist/hooks/lib/gramatr-hook-utils.js
@@ -407,7 +426,249 @@ init_config_runtime();
 
 // dist/hooks/lib/hook-state.js
 var import_node_sqlite = require("node:sqlite");
+var import_node_fs2 = require("node:fs");
+var import_node_path2 = require("node:path");
 init_config_runtime();
+var Database = import_node_sqlite.DatabaseSync;
+var _db = null;
+function p(obj) {
+  return obj;
+}
+var _filesystemAvailable = true;
+function getDbPath() {
+  if (process.env.GRAMATR_STATE_DB)
+    return process.env.GRAMATR_STATE_DB;
+  const dir = getGramatrDirFromEnv() || (0, import_node_path2.join)(getHomeDir(), ".gramatr");
+  return (0, import_node_path2.join)(dir, "state.db");
+}
+function getDb() {
+  if (_db)
+    return _db;
+  const path = getDbPath();
+  if (path !== ":memory:") {
+    try {
+      const dir = (0, import_node_path2.dirname)(path);
+      if (!(0, import_node_fs2.existsSync)(dir))
+        (0, import_node_fs2.mkdirSync)(dir, { recursive: true });
+    } catch {
+      _filesystemAvailable = false;
+    }
+  }
+  try {
+    _db = new Database(_filesystemAvailable ? path : ":memory:");
+    if (_filesystemAvailable && path !== ":memory:") {
+      try {
+        (0, import_node_fs2.chmodSync)(path, 384);
+      } catch {
+      }
+    }
+  } catch {
+    _filesystemAvailable = false;
+    _db = new Database(":memory:");
+  }
+  _db.exec("PRAGMA journal_mode = WAL");
+  _db.exec("PRAGMA synchronous = NORMAL");
+  _db.exec("PRAGMA wal_autocheckpoint = 1000");
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS session_context (
+      session_id        TEXT PRIMARY KEY,
+      user_id           TEXT,
+      project_id        TEXT,
+      interaction_id    TEXT,
+      entity_id         TEXT,
+      project_name      TEXT,
+      git_root          TEXT,
+      git_branch        TEXT,
+      git_remote        TEXT,
+      working_directory TEXT,
+      session_start     TEXT,
+      updated_at        TEXT NOT NULL,
+      client_type       TEXT,
+      agent_name        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS turns (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id        TEXT NOT NULL,
+      client_session_id TEXT,
+      project_id        TEXT,
+      agent_name        TEXT,
+      turn_number       INTEGER,
+      timestamp         TEXT,
+      prompt            TEXT,
+      effort_level      TEXT,
+      intent_type       TEXT,
+      confidence        REAL,
+      tokens_saved      INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS directive_cache (
+      key        TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      cached_at  TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      PRIMARY KEY (key, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS mutation_outbox (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      tool_name     TEXT NOT NULL,
+      args_json     TEXT NOT NULL,
+      created_at    TEXT NOT NULL,
+      replicated_at TEXT,
+      attempts      INTEGER NOT NULL DEFAULT 0,
+      last_error    TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS op_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id   TEXT NOT NULL,
+      tool         TEXT,
+      time_ms      INTEGER,
+      tokens_saved INTEGER,
+      timestamp    INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS latest_classification (
+      session_id            TEXT PRIMARY KEY,
+      classifier_model      TEXT,
+      classifier_time_ms    INTEGER,
+      tokens_saved          INTEGER,
+      savings_ratio         REAL,
+      effort                TEXT,
+      intent                TEXT,
+      confidence            REAL,
+      memory_delivered      INTEGER,
+      downstream_model      TEXT,
+      server_version        TEXT,
+      stage_timing          TEXT,
+      recorded_at           INTEGER NOT NULL,
+      original_prompt       TEXT,
+      pending_feedback      INTEGER DEFAULT 0,
+      feedback_submitted_at TEXT,
+      client_type           TEXT,
+      agent_name            TEXT,
+      memory_tier           TEXT,
+      memory_scope          TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS session_log (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id     TEXT,
+      project_id     TEXT,
+      ended_at       TEXT,
+      reason         TEXT,
+      commit_log     TEXT,
+      interaction_id TEXT,
+      entity_id      TEXT,
+      client_type    TEXT,
+      agent_name     TEXT,
+      synced_at      TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS session_log_session_id
+      ON session_log(session_id)
+      WHERE session_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL,
+      git_remote TEXT,
+      directory TEXT,
+      org_id TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
+    CREATE INDEX IF NOT EXISTS idx_projects_directory ON projects(directory);
+
+    CREATE TABLE IF NOT EXISTS compacts (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT,
+      session_id  TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      summary     TEXT,
+      turns_json  TEXT,
+      metadata_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_compacts_session ON compacts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_compacts_project ON compacts(project_id);
+
+    CREATE TABLE IF NOT EXISTS packets (
+      id          TEXT PRIMARY KEY,
+      session_id  TEXT NOT NULL,
+      project_id  TEXT,
+      effort      TEXT,
+      intent      TEXT,
+      created_at  INTEGER NOT NULL,
+      payload     TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_packets_session ON packets(session_id, created_at DESC);
+  `);
+  const migrations = [
+    "ALTER TABLE session_context ADD COLUMN entity_id TEXT",
+    "ALTER TABLE session_context ADD COLUMN client_type TEXT",
+    "ALTER TABLE session_context ADD COLUMN agent_name TEXT",
+    "ALTER TABLE latest_classification ADD COLUMN original_prompt TEXT",
+    "ALTER TABLE latest_classification ADD COLUMN pending_feedback INTEGER DEFAULT 0",
+    "ALTER TABLE latest_classification ADD COLUMN feedback_submitted_at TEXT",
+    "ALTER TABLE latest_classification ADD COLUMN client_type TEXT",
+    "ALTER TABLE latest_classification ADD COLUMN agent_name TEXT",
+    "ALTER TABLE latest_classification ADD COLUMN memory_tier TEXT",
+    "ALTER TABLE latest_classification ADD COLUMN memory_scope TEXT",
+    "ALTER TABLE session_log ADD COLUMN interaction_id TEXT",
+    "ALTER TABLE session_log ADD COLUMN entity_id TEXT",
+    "ALTER TABLE session_log ADD COLUMN client_type TEXT",
+    "ALTER TABLE session_log ADD COLUMN agent_name TEXT",
+    "ALTER TABLE session_log ADD COLUMN synced_at TEXT",
+    // Unique index is safe to re-run (IF NOT EXISTS)
+    "CREATE UNIQUE INDEX IF NOT EXISTS session_log_session_id ON session_log(session_id) WHERE session_id IS NOT NULL",
+    "ALTER TABLE session_context ADD COLUMN user_id TEXT",
+    "ALTER TABLE session_context ADD COLUMN platform TEXT",
+    "ALTER TABLE session_context ADD COLUMN arch TEXT",
+    // #1214: cross-agent fields on turns for local SQLite intelligence cache
+    "ALTER TABLE turns ADD COLUMN project_id TEXT",
+    "ALTER TABLE turns ADD COLUMN client_session_id TEXT",
+    "ALTER TABLE turns ADD COLUMN agent_name TEXT",
+    // Orchestration task assignment — set by session-start when a task is picked up
+    "ALTER TABLE session_context ADD COLUMN orchestration_task_id TEXT",
+    // Orchestration workspace isolation — set at pickup alongside task_id
+    "ALTER TABLE session_context ADD COLUMN orch_access_scope TEXT",
+    "ALTER TABLE session_context ADD COLUMN orch_dir TEXT",
+    "ALTER TABLE session_context ADD COLUMN orch_working_dir TEXT"
+  ];
+  for (const sql of migrations) {
+    try {
+      _db.exec(sql);
+    } catch {
+    }
+  }
+  try {
+    _db.prepare("DELETE FROM turns WHERE timestamp IS NOT NULL AND timestamp < datetime('now', '-7 days')").run();
+  } catch {
+  }
+  return _db;
+}
+function setLatestClassification(record) {
+  getDb().prepare(`
+    INSERT OR REPLACE INTO latest_classification
+      (session_id, classifier_model, classifier_time_ms, tokens_saved, savings_ratio,
+       effort, intent, confidence, memory_delivered, downstream_model,
+       server_version, stage_timing, recorded_at,
+       original_prompt, pending_feedback, feedback_submitted_at,
+       client_type, agent_name, memory_tier, memory_scope)
+    VALUES
+      (@session_id, @classifier_model, @classifier_time_ms, @tokens_saved, @savings_ratio,
+       @effort, @intent, @confidence, @memory_delivered, @downstream_model,
+       @server_version, @stage_timing, @recorded_at,
+       @original_prompt, @pending_feedback, @feedback_submitted_at,
+       @client_type, @agent_name, @memory_tier, @memory_scope)
+  `).run(p({
+    ...record,
+    pending_feedback: record.pending_feedback ? 1 : 0
+  }));
+}
 
 // dist/hooks/lib/gramatr-hook-utils.js
 var HOME = getHomeDir();
@@ -436,7 +697,7 @@ function resolveMcpUrl() {
 // dist/hooks/lib/bootstrap-recovery.js
 function readGitRemoteFromProjectFile(projectDir) {
   try {
-    const proj = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    const proj = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     const drift = proj.drift;
     const remote = typeof proj.git_remote === "string" && proj.git_remote || drift && typeof drift.git_remote === "string" && drift.git_remote || null;
     return remote || null;
@@ -448,8 +709,8 @@ var RECOVERY_TIMEOUT_MS = 3e3;
 var RECOVERY_RETRY_JITTER_MS = 250;
 function findUsableMcpOAuthEntry(remoteUrl) {
   try {
-    const credFile = (0, import_node_path2.resolve)(getHomeDir(), ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs2.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path3.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs3.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -474,7 +735,7 @@ function resolveClientBearerToken(remoteUrl) {
   const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
   if (pluginDataDir) {
     try {
-      const cfg = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(pluginDataDir, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(pluginDataDir, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
@@ -493,7 +754,7 @@ function resolveClientBearerExpiry(remoteUrl) {
   const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
   if (pluginDataDir) {
     try {
-      const cfg = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(pluginDataDir, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(pluginDataDir, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return null;
     } catch {
@@ -616,13 +877,13 @@ async function recoverSessionToken(opts) {
 }
 
 // dist/hooks/lib/credential-heal.js
-var import_node_fs3 = require("node:fs");
-var import_node_path3 = require("node:path");
+var import_node_fs4 = require("node:fs");
+var import_node_path4 = require("node:path");
 init_config_runtime();
 function isCachedMcpOAuthEntryStale(remoteUrl, now = Date.now()) {
   try {
-    const credFile = (0, import_node_path3.resolve)(getHomeDir(), ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs3.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path4.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs4.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (!mcpOAuth)
       return false;
@@ -672,28 +933,28 @@ function removeStaleMcpOAuthEntry(creds, remoteUrl) {
   return { creds: out, removed };
 }
 function credentialsFilePath() {
-  return (0, import_node_path3.resolve)(getHomeDir(), ".claude", ".credentials.json");
+  return (0, import_node_path4.resolve)(getHomeDir(), ".claude", ".credentials.json");
 }
 var PURGE_CLI_ENV = "GRAMATR_PURGE_STALE_MCP_OAUTH";
 function runStaleAuthPurge(remoteUrl) {
   const credFile = credentialsFilePath();
-  if (!(0, import_node_fs3.existsSync)(credFile)) {
+  if (!(0, import_node_fs4.existsSync)(credFile)) {
     return { status: "no-file", removed: [] };
   }
-  const parsed = JSON.parse((0, import_node_fs3.readFileSync)(credFile, "utf8"));
+  const parsed = JSON.parse((0, import_node_fs4.readFileSync)(credFile, "utf8"));
   const { creds, removed } = removeStaleMcpOAuthEntry(parsed, remoteUrl);
   if (removed.length === 0) {
     return { status: "nothing-to-remove", removed: [] };
   }
   const backupPath = `${credFile}.gramatr-bak-${Date.now()}`;
-  (0, import_node_fs3.copyFileSync)(credFile, backupPath);
+  (0, import_node_fs4.copyFileSync)(credFile, backupPath);
   const tmp = `${credFile}.gramatr-tmp-${process.pid}`;
-  (0, import_node_fs3.writeFileSync)(tmp, `${JSON.stringify(creds, null, 2)}
+  (0, import_node_fs4.writeFileSync)(tmp, `${JSON.stringify(creds, null, 2)}
 `, { encoding: "utf8", mode: 384 });
   try {
-    (0, import_node_fs3.renameSync)(tmp, credFile);
+    (0, import_node_fs4.renameSync)(tmp, credFile);
   } catch (err) {
-    (0, import_node_fs3.rmSync)(tmp, { force: true });
+    (0, import_node_fs4.rmSync)(tmp, { force: true });
     throw err;
   }
   return { status: "purged", removed, backupPath };
@@ -730,12 +991,12 @@ Now run \`/mcp\` in Claude Code and reconnect gr\u0101matr.
 }
 
 // dist/hooks/lib/server-version-watch.js
-var import_node_fs4 = require("node:fs");
-var import_node_path4 = require("node:path");
+var import_node_fs5 = require("node:fs");
+var import_node_path5 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var SERVER_VERSION_FILE = ".server-version";
 function getServerVersionPath(projectDir) {
-  return (0, import_node_path4.join)(projectDir, GRAMATR_DIR2, SERVER_VERSION_FILE);
+  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SERVER_VERSION_FILE);
 }
 function extractServerVersion(route) {
   if (!route)
@@ -751,9 +1012,9 @@ function extractServerVersion(route) {
 function readLastSeenServerVersion(projectDir) {
   try {
     const path = getServerVersionPath(projectDir);
-    if (!(0, import_node_fs4.existsSync)(path))
+    if (!(0, import_node_fs5.existsSync)(path))
       return null;
-    const raw = (0, import_node_fs4.readFileSync)(path, "utf8").trim();
+    const raw = (0, import_node_fs5.readFileSync)(path, "utf8").trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
@@ -761,13 +1022,13 @@ function readLastSeenServerVersion(projectDir) {
 }
 function writeLastSeenServerVersion(projectDir, version) {
   try {
-    const dir = (0, import_node_path4.join)(projectDir, GRAMATR_DIR2);
-    if (!(0, import_node_fs4.existsSync)(dir))
-      (0, import_node_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
+    if (!(0, import_node_fs5.existsSync)(dir))
+      (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getServerVersionPath(projectDir);
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs4.writeFileSync)(tmp, version + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs4.renameSync)(tmp, dest);
+    (0, import_node_fs5.writeFileSync)(tmp, version + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs5.renameSync)(tmp, dest);
   } catch {
   }
 }
@@ -818,21 +1079,21 @@ function resolveVersion() {
 var VERSION = resolveVersion();
 
 // dist/hooks/lib/session-root-registry.js
-var import_node_fs7 = require("node:fs");
-var import_node_path7 = require("node:path");
+var import_node_fs8 = require("node:fs");
+var import_node_path8 = require("node:path");
 init_config_runtime();
 
 // dist/hooks/lib/project-state.js
 var import_node_child_process = require("node:child_process");
-var import_node_fs6 = require("node:fs");
-var import_node_path6 = require("node:path");
+var import_node_fs7 = require("node:fs");
+var import_node_path7 = require("node:path");
 var GRAMATR_DIR3 = ".gramatr";
 function findProjectRoot(startDir = process.cwd()) {
   let dir = startDir;
   for (; ; ) {
-    if ((0, import_node_fs6.existsSync)((0, import_node_path6.join)(dir, GRAMATR_DIR3)))
+    if ((0, import_node_fs7.existsSync)((0, import_node_path7.join)(dir, GRAMATR_DIR3)))
       return dir;
-    const parent = (0, import_node_path6.dirname)(dir);
+    const parent = (0, import_node_path7.dirname)(dir);
     if (parent === dir)
       return startDir;
     dir = parent;
@@ -854,13 +1115,13 @@ function canonicalizeProjectRoot(dir) {
   const commonDir = git(["rev-parse", "--git-common-dir"]);
   if (!gitDir || !commonDir)
     return dir;
-  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path6.join)(dir, p);
+  const abs = (p2) => p2.startsWith("/") ? p2 : (0, import_node_path7.join)(dir, p2);
   const absGitDir = abs(gitDir);
   const absCommonDir = abs(commonDir);
   if (absGitDir === absCommonDir)
     return dir;
-  const mainRoot = (0, import_node_path6.dirname)(absCommonDir);
-  if ((0, import_node_fs6.existsSync)((0, import_node_path6.join)(mainRoot, GRAMATR_DIR3)))
+  const mainRoot = (0, import_node_path7.dirname)(absCommonDir);
+  if ((0, import_node_fs7.existsSync)((0, import_node_path7.join)(mainRoot, GRAMATR_DIR3)))
     return mainRoot;
   return dir;
 }
@@ -894,29 +1155,29 @@ function resolveProjectDir(opts = {}) {
 var CORE_FILE = "project.json";
 var RUNTIME_FILE = "runtime.json";
 function getStatePaths(projectDir) {
-  const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR3);
+  const dir = (0, import_node_path7.join)(projectDir, GRAMATR_DIR3);
   return {
-    core: (0, import_node_path6.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path6.join)(dir, RUNTIME_FILE)
+    core: (0, import_node_path7.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path7.join)(dir, RUNTIME_FILE)
   };
 }
 function atomicWriteJson(filePath, dir, payload) {
-  if (!(0, import_node_fs6.existsSync)(dir)) {
-    (0, import_node_fs6.mkdirSync)(dir, { recursive: true, mode: 448 });
+  if (!(0, import_node_fs7.existsSync)(dir)) {
+    (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const tmp = `${filePath}.tmp.${process.pid}`;
-  (0, import_node_fs6.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs6.renameSync)(tmp, filePath);
+  (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs7.renameSync)(tmp, filePath);
   try {
-    (0, import_node_fs6.chmodSync)(filePath, 384);
+    (0, import_node_fs7.chmodSync)(filePath, 384);
   } catch {
   }
 }
 function readJson(filePath) {
   try {
-    if (!(0, import_node_fs6.existsSync)(filePath))
+    if (!(0, import_node_fs7.existsSync)(filePath))
       return null;
-    return JSON.parse((0, import_node_fs6.readFileSync)(filePath, "utf8"));
+    return JSON.parse((0, import_node_fs7.readFileSync)(filePath, "utf8"));
   } catch {
     return null;
   }
@@ -926,7 +1187,7 @@ function readRuntime(projectDir) {
 }
 function patchRuntime(projectDir, patch) {
   const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR3);
+  const dir = (0, import_node_path7.join)(projectDir, GRAMATR_DIR3);
   const prev = readRuntime(projectDir);
   const next = { ...prev, ...patch };
   if (JSON.stringify(prev) === JSON.stringify(next)) {
@@ -945,7 +1206,7 @@ function registryTtlMs() {
   return days * 24 * 60 * 60 * 1e3;
 }
 function registryDir() {
-  return (0, import_node_path7.join)(getHomeDir(), ".gramatr", "sessions");
+  return (0, import_node_path8.join)(getHomeDir(), ".gramatr", "sessions");
 }
 function sessionFileName(sessionId) {
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
@@ -957,13 +1218,13 @@ function sessionRootPath(sessionId) {
   const name = sessionFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path7.join)(registryDir(), name);
+  return (0, import_node_path8.join)(registryDir(), name);
 }
 function readRaw(path) {
   try {
-    if (!(0, import_node_fs7.existsSync)(path))
+    if (!(0, import_node_fs8.existsSync)(path))
       return null;
-    return JSON.parse((0, import_node_fs7.readFileSync)(path, "utf8"));
+    return JSON.parse((0, import_node_fs8.readFileSync)(path, "utf8"));
   } catch {
     return null;
   }
@@ -981,15 +1242,15 @@ function readSessionRoot(sessionId) {
     const lastSeen = Date.parse(raw.last_seen_at);
     if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
       try {
-        (0, import_node_fs7.rmSync)(path, { force: true });
+        (0, import_node_fs8.rmSync)(path, { force: true });
       } catch {
       }
       return null;
     }
   }
-  if (!(0, import_node_fs7.existsSync)(raw.project_root)) {
+  if (!(0, import_node_fs8.existsSync)(raw.project_root)) {
     try {
-      (0, import_node_fs7.rmSync)(path, { force: true });
+      (0, import_node_fs8.rmSync)(path, { force: true });
     } catch {
     }
     return null;
@@ -998,7 +1259,7 @@ function readSessionRoot(sessionId) {
 }
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path7.join)(home, ".gramatr", "debug");
+  return (0, import_node_path8.join)(home, ".gramatr", "debug");
 }
 function recordRegistryResolution(resolution, sessionId, clientType) {
   if (resolution === "hit")
@@ -1011,19 +1272,19 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
   };
   try {
     const dir = registryDebugDir();
-    if (!(0, import_node_fs7.existsSync)(dir))
-      (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path7.join)(dir, "registry-resolution.jsonl");
+    if (!(0, import_node_fs8.existsSync)(dir))
+      (0, import_node_fs8.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path8.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs7.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs7.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs8.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs8.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > REGISTRY_SAMPLE_CAP) {
       existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
     }
-    (0, import_node_fs7.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs8.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -1045,7 +1306,126 @@ function resolveSessionRoot(opts) {
   });
 }
 
+// dist/proxy/remote-client.js
+init_auth();
+
+// dist/proxy/lib/retry.js
+function isRetryable(err) {
+  if (err === null || err === void 0)
+    return false;
+  const status = extractStatus(err);
+  if (status !== void 0) {
+    if (status === 502 || status === 503 || status === 504 || status === 429)
+      return true;
+    if (status === 401 || status === 403 || status === 400)
+      return false;
+    if (status >= 500)
+      return true;
+    if (status >= 400)
+      return false;
+  }
+  const code = extractCode(err);
+  if (code) {
+    if (code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EAI_AGAIN" || code === "ECONNRESET" || code === "ENETUNREACH" || code === "EPIPE") {
+      return true;
+    }
+  }
+  const message = extractMessage(err).toLowerCase();
+  if (!message)
+    return false;
+  if (message.includes("abort") || message.includes("timeout") || message.includes("timed out")) {
+    return true;
+  }
+  if (message.includes("not connected") || message.includes("socket closed") || message.includes("econnreset")) {
+    return true;
+  }
+  if (message.includes("econnrefused") || message.includes("etimedout") || message.includes("eai_again") || message.includes("network")) {
+    return true;
+  }
+  return false;
+}
+function extractStatus(err) {
+  if (typeof err === "object" && err !== null && "status" in err) {
+    const s = err.status;
+    if (typeof s === "number")
+      return s;
+  }
+  return void 0;
+}
+function extractCode(err) {
+  if (typeof err === "object" && err !== null && "code" in err) {
+    const c = err.code;
+    if (typeof c === "string")
+      return c;
+  }
+  return void 0;
+}
+function extractMessage(err) {
+  if (err instanceof Error)
+    return err.message;
+  if (typeof err === "string")
+    return err;
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const m = err.message;
+    if (typeof m === "string")
+      return m;
+  }
+  return "";
+}
+
+// dist/proxy/remote-client.js
+var DEBUG = !!process.env.GRAMATR_DEBUG;
+var HOT_PATH_BACKOFF = { attempts: 3, baseMs: 200, capMs: 2e3 };
+var TransientHttpError = class extends Error {
+  status;
+  retryAfterMs;
+  constructor(status, statusText, retryAfterMs) {
+    super(`Remote server error: HTTP ${status} ${statusText}`);
+    this.name = "TransientHttpError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+};
+var remoteBackoffOpts = {
+  ...HOT_PATH_BACKOFF,
+  isRetryable,
+  getRetryAfterMs: (err) => err instanceof TransientHttpError ? err.retryAfterMs : void 0
+};
+
+// dist/hooks/lib/routing.js
+function persistClassificationResult(options) {
+  const packet1 = options.route?.packet_1;
+  const classification = packet1?.classification || options.route?.classification;
+  const executionSummary = packet1?.execution_summary || options.route?.execution_summary;
+  const routingSignals = packet1?.routing_signals || options.route?.routing_signals;
+  const tokenSavings = packet1?.token_savings || options.route?.token_savings;
+  const memoryContext = packet1?.memory_context || options.route?.memory_context;
+  setLatestClassification({
+    session_id: options.sessionId,
+    classifier_model: executionSummary?.classifier_model || null,
+    classifier_time_ms: executionSummary?.classifier_time_ms || null,
+    tokens_saved: tokenSavings?.total_saved || tokenSavings?.tokens_saved || 0,
+    savings_ratio: tokenSavings?.savings_ratio || null,
+    effort: classification?.effort_level || null,
+    intent: classification?.intent_type || null,
+    confidence: classification?.confidence ?? null,
+    memory_delivered: memoryContext?.results?.length || null,
+    downstream_model: options.downstreamModel || null,
+    server_version: executionSummary?.server_version || null,
+    stage_timing: executionSummary?.stage_timing ? JSON.stringify(executionSummary.stage_timing) : null,
+    recorded_at: Date.now(),
+    original_prompt: options.prompt,
+    pending_feedback: true,
+    feedback_submitted_at: null,
+    client_type: options.clientType,
+    agent_name: options.agentName,
+    memory_tier: null,
+    memory_scope: classification?.memory_scope || routingSignals?.memory_scope || null
+  });
+}
+
 // dist/bin/ups-route.js
+init_config_runtime();
 var ROUTE_TIMEOUT_MS = 8e3;
 var TOKEN_REJECTED_STATUSES = /* @__PURE__ */ new Set([401, 403]);
 var BEARER_EXPIRY_WARN_MS = 30 * 6e4;
@@ -1202,6 +1582,17 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
   }
   if (attempt.kind !== "ok") {
     return {};
+  }
+  try {
+    persistClassificationResult({
+      sessionId: typeof input.session_id === "string" ? input.session_id : "unknown",
+      prompt: prompt.slice(0, 500),
+      route: attempt.route,
+      downstreamModel: getClaudeModelFromEnv(),
+      clientType: "claude-code",
+      agentName: "Claude Code"
+    });
+  } catch {
   }
   try {
     const serverTurnId = attempt.envelope.turn_id;
