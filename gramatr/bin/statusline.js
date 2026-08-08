@@ -343,6 +343,66 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Da
   return file;
 }
 
+// dist/hooks/lib/collect-git-state.js
+var import_node_child_process2 = require("node:child_process");
+var EMPTY_GIT_STATE = {
+  branch: "",
+  ahead: 0,
+  behind: 0,
+  modified: 0,
+  untracked: 0,
+  stash: 0,
+  last_commit_age: ""
+};
+var GIT_TIMEOUT_MS = 500;
+function runGit(args, cwd) {
+  try {
+    return (0, import_node_child_process2.execFileSync)("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: GIT_TIMEOUT_MS
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+function parsePorcelainV2(output) {
+  const out = { modified: 0, untracked: 0 };
+  for (const line of output.split("\n")) {
+    if (line.startsWith("# branch.head ")) {
+      const head = line.slice("# branch.head ".length).trim();
+      if (head && head !== "(detached)")
+        out.branch = head;
+    } else if (line.startsWith("# branch.ab ")) {
+      const m = /^\+(\d+)\s+-(\d+)/.exec(line.slice("# branch.ab ".length).trim());
+      if (m) {
+        out.ahead = Number(m[1]);
+        out.behind = Number(m[2]);
+      }
+    } else if (line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u ")) {
+      out.modified = (out.modified ?? 0) + 1;
+    } else if (line.startsWith("? ")) {
+      out.untracked = (out.untracked ?? 0) + 1;
+    }
+  }
+  return out;
+}
+function collectGitState(cwd) {
+  const state = { ...EMPTY_GIT_STATE };
+  const porcelain = runGit(["status", "--porcelain=v2", "--branch"], cwd);
+  if (porcelain !== null) {
+    Object.assign(state, parsePorcelainV2(porcelain));
+  }
+  const stash = runGit(["rev-list", "--walk-reflogs", "--count", "refs/stash"], cwd);
+  if (stash !== null && /^\d+$/.test(stash))
+    state.stash = Number(stash);
+  const age = runGit(["log", "-1", "--format=%cr"], cwd);
+  if (age !== null)
+    state.last_commit_age = age;
+  return state;
+}
+
 // dist/bin/statusline.js
 var REMOTE_URL = process.env.GRAMATR_URL ?? "https://api.gramatr.com";
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
@@ -380,16 +440,27 @@ async function fetchAndWrite(url, headers) {
     if (!res.ok)
       return false;
     const text = await res.text();
-    if (text) {
-      process.stdout.write(text);
-      cacheStatuslineText(text);
-    }
+    if (!text)
+      return false;
+    process.stdout.write(text);
+    cacheStatuslineText(text);
     return true;
   } catch {
     return false;
   }
 }
-async function tryAuthenticated() {
+function gitStateQuery(state) {
+  return new URLSearchParams({
+    git_branch: state.branch,
+    git_ahead: String(state.ahead),
+    git_behind: String(state.behind),
+    git_modified: String(state.modified),
+    git_untracked: String(state.untracked),
+    git_stash: String(state.stash),
+    git_last_commit_age: state.last_commit_age
+  }).toString();
+}
+async function tryAuthenticated(gitState) {
   let token;
   try {
     token = await resolveUsableSessionToken(PROJECT_DIR);
@@ -398,14 +469,14 @@ async function tryAuthenticated() {
   }
   if (!token)
     return false;
-  const url = `${apiV1Base(token.base_url)}/statusline`;
+  const url = `${apiV1Base(token.base_url)}/statusline?${gitStateQuery(gitState)}`;
   return fetchAndWrite(url, bearerHeader(token));
 }
-async function tryLegacy() {
+async function tryLegacy(gitState) {
   const sessionId = getSessionId();
   if (!sessionId)
     return false;
-  const url = `${REMOTE_URL}/api/v1/statusline/${encodeURIComponent(sessionId)}`;
+  const url = `${REMOTE_URL}/api/v1/statusline/${encodeURIComponent(sessionId)}?${gitStateQuery(gitState)}`;
   return fetchAndWrite(url, {});
 }
 function tryFileFallback() {
@@ -423,9 +494,10 @@ function tryFileFallback() {
   }
 }
 async function main() {
-  if (await tryAuthenticated())
+  const gitState = collectGitState(PROJECT_DIR);
+  if (await tryAuthenticated(gitState))
     return;
-  if (await tryLegacy())
+  if (await tryLegacy(gitState))
     return;
   tryFileFallback();
 }

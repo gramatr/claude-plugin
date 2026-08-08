@@ -27,12 +27,12 @@ function readStdin(timeoutMs) {
 var ALLOW_OUTPUT = {
   hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" }
 };
-var WARN_REASON = "gr\u0101matr memory-gate: prefer the gr\u0101matr knowledge graph via the MCP memory tools \u2014 local Claude Code memory files (~/.claude/projects/*/memory/*.md, including MEMORY.md) split the knowledge graph. This write is allowed, but consider mcp__gramatr__create_entity to record a new memory, or mcp__gramatr__add_observation to append to an existing one.";
-function warnOutput(reason) {
+var DENY_REASON = "gr\u0101matr memory-gate: local Claude Code memory files (~/.claude/projects/*/memory/*.md, including MEMORY.md) are session/machine-local and not durable the way gr\u0101matr's memory is \u2014 they don't persist across sessions, machines, or team members the way the gr\u0101matr knowledge graph does. Writes to them are not allowed in a gr\u0101matr session. Use mcp__gramatr__create_entity to record a new memory, or mcp__gramatr__add_observation to append to an existing one.";
+function denyOutput(reason) {
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      permissionDecision: "allow",
+      permissionDecision: "deny",
       permissionDecisionReason: reason
     }
   };
@@ -63,7 +63,7 @@ async function runMemoryGateHook(_args = []) {
   }
   const filePath = input.tool_input?.file_path || input.tool_input?.path || "";
   if (isAutoMemoryPath(filePath)) {
-    process.stdout.write(JSON.stringify(warnOutput(WARN_REASON)));
+    process.stdout.write(JSON.stringify(denyOutput(DENY_REASON)));
     return 0;
   }
   process.stdout.write(JSON.stringify(ALLOW_OUTPUT));

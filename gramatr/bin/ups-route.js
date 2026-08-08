@@ -244,8 +244,7 @@ __export(ups_route_exports, {
   computeUpsRoute: () => computeUpsRoute,
   degradedSurfaceWarning: () => degradedSurfaceWarning,
   loudRecoveryFailureWarning: () => loudRecoveryFailureWarning,
-  main: () => main,
-  withProactiveBearerWarning: () => withProactiveBearerWarning
+  main: () => main
 });
 module.exports = __toCommonJS(ups_route_exports);
 
@@ -745,23 +744,6 @@ function resolveClientBearerToken(remoteUrl) {
   if (entry)
     return entry.accessToken;
   return "";
-}
-function resolveClientBearerExpiry(remoteUrl) {
-  const envApiKey = process.env.GRAMATR_API_KEY ?? "";
-  const envToken = process.env.GRAMATR_TOKEN ?? "";
-  if (sanitizeEnvToken(envApiKey) || sanitizeEnvToken(envToken))
-    return null;
-  const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
-  if (pluginDataDir) {
-    try {
-      const cfg = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(pluginDataDir, "token.json"), "utf8"));
-      if (typeof cfg.token === "string" && cfg.token)
-        return null;
-    } catch {
-    }
-  }
-  const entry = findUsableMcpOAuthEntry(remoteUrl);
-  return entry ? entry.expiresAt : null;
 }
 function extractRestToken(parsed) {
   return normalizeRestTokenBlock(parsed.rest_token);
@@ -1428,28 +1410,6 @@ function persistClassificationResult(options) {
 init_config_runtime();
 var ROUTE_TIMEOUT_MS = 8e3;
 var TOKEN_REJECTED_STATUSES = /* @__PURE__ */ new Set([401, 403]);
-var BEARER_EXPIRY_WARN_MS = 30 * 6e4;
-function withProactiveBearerWarning(envelope, bearerExpiresAt, now = Date.now()) {
-  if (bearerExpiresAt == null)
-    return envelope;
-  const msLeft = bearerExpiresAt - now;
-  if (msLeft <= 0 || msLeft > BEARER_EXPIRY_WARN_MS)
-    return envelope;
-  const hso = envelope.hookSpecificOutput;
-  if (!hso || typeof hso.additionalContext !== "string")
-    return envelope;
-  const minutes = Math.max(1, Math.round(msLeft / 6e4));
-  const advisory = `gr\u0101matr: your Claude Code MCP connection expires in ~${minutes} min. Run \`/mcp\` to reconnect before gr\u0101matr tools start failing.`;
-  return {
-    ...envelope,
-    hookSpecificOutput: {
-      ...hso,
-      additionalContext: `${advisory}
-
-${hso.additionalContext}`
-    }
-  };
-}
 function resolveUpsRouteProjectDir(input) {
   return resolveSessionRoot({
     sessionId: typeof input.session_id === "string" ? input.session_id : void 0,
@@ -1604,8 +1564,7 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
     delete attempt.envelope.turn_id;
   }
   await reconcileServerVersion(input, projectDir, attempt.route, fetchImpl);
-  const bearerExpiresAt = resolveClientBearerExpiry(remoteUrl);
-  return withProactiveBearerWarning(attempt.envelope, bearerExpiresAt);
+  return attempt.envelope;
 }
 async function reconcileServerVersion(input, projectDir, route, fetchImpl) {
   const observed = extractServerVersion(route);
@@ -1672,6 +1631,5 @@ if (process.env.GRAMATR_UPS_ROUTE_NO_AUTOSTART !== "1") {
   computeUpsRoute,
   degradedSurfaceWarning,
   loudRecoveryFailureWarning,
-  main,
-  withProactiveBearerWarning
+  main
 });

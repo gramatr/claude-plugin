@@ -86,13 +86,13 @@ var init_config_runtime = __esm({
 function getConfigPath() {
   const gramatrDir = getGramatrDirFromEnv();
   if (gramatrDir) {
-    return (0, import_node_path5.join)((0, import_node_path5.dirname)(gramatrDir), ".gramatr.json");
+    return (0, import_node_path6.join)((0, import_node_path6.dirname)(gramatrDir), ".gramatr.json");
   }
-  return (0, import_node_path5.join)(getHomeDir(), ".gramatr.json");
+  return (0, import_node_path6.join)(getHomeDir(), ".gramatr.json");
 }
 function readConfig() {
   try {
-    const raw = (0, import_node_fs5.readFileSync)(getConfigPath(), "utf8");
+    const raw = (0, import_node_fs6.readFileSync)(getConfigPath(), "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -100,7 +100,7 @@ function readConfig() {
 }
 function writeConfig(config) {
   try {
-    (0, import_node_fs5.writeFileSync)(getConfigPath(), JSON.stringify(config, null, 2), { mode: 384 });
+    (0, import_node_fs6.writeFileSync)(getConfigPath(), JSON.stringify(config, null, 2), { mode: 384 });
   } catch {
   }
 }
@@ -227,12 +227,12 @@ function getServerUrl() {
   const config = readConfig();
   return (config?.server_url || "https://api.gramatr.com").replace(/\/mcp\/?$/, "");
 }
-var import_node_fs5, import_node_path5, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress;
+var import_node_fs6, import_node_path6, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress;
 var init_auth = __esm({
   "dist/server/auth.js"() {
     "use strict";
-    import_node_fs5 = require("node:fs");
-    import_node_path5 = require("node:path");
+    import_node_fs6 = require("node:fs");
+    import_node_path6 = require("node:path");
     init_config_runtime();
     WARNED_EXPIRY = /* @__PURE__ */ new Set();
     RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
@@ -659,8 +659,8 @@ var init_tool_envelope = __esm({
 });
 
 // dist/bin/init-identity.js
-var import_node_fs8 = require("node:fs");
-var import_node_path8 = require("node:path");
+var import_node_fs10 = require("node:fs");
+var import_node_path10 = require("node:path");
 
 // dist/user-config.js
 var import_node_fs = require("node:fs");
@@ -705,6 +705,10 @@ function writeCachedUserIdentity(patch, options) {
     return false;
   }
 }
+function readTelemetryDisabled() {
+  const cfg = readGramatrJson();
+  return cfg.telemetry?.disabled === true;
+}
 function isUserIdentityStale(identity) {
   if (!identity || !identity.cached_at)
     return true;
@@ -715,17 +719,54 @@ function isUserIdentityStale(identity) {
   return Date.now() - cachedMs > ttl;
 }
 
-// dist/hooks/lib/project-state.js
-var import_node_child_process = require("node:child_process");
+// dist/hooks/lib/otel-settings.js
 var import_node_fs2 = require("node:fs");
 var import_node_path2 = require("node:path");
+function buildOtelEnvBlock(inputs) {
+  return {
+    CLAUDE_CODE_ENABLE_TELEMETRY: "1",
+    OTEL_METRICS_EXPORTER: "otlp",
+    OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
+    OTEL_EXPORTER_OTLP_ENDPOINT: inputs.collectorEndpoint,
+    OTEL_EXPORTER_OTLP_HEADERS: `Authorization=Bearer ${inputs.token}`,
+    OTEL_RESOURCE_ATTRIBUTES: `gramatr.session_id=${inputs.sessionId}`
+  };
+}
+function writeOtelSettings(homeDir, inputs) {
+  try {
+    const dir = (0, import_node_path2.join)(homeDir, ".claude");
+    const target = (0, import_node_path2.join)(dir, "settings.json");
+    let settings = {};
+    if ((0, import_node_fs2.existsSync)(target)) {
+      try {
+        settings = JSON.parse((0, import_node_fs2.readFileSync)(target, "utf8"));
+      } catch {
+        return false;
+      }
+    }
+    const existingEnv = settings.env && typeof settings.env === "object" && !Array.isArray(settings.env) ? settings.env : {};
+    settings.env = { ...existingEnv, ...buildOtelEnvBlock(inputs) };
+    (0, import_node_fs2.mkdirSync)(dir, { recursive: true });
+    const tmp = (0, import_node_path2.join)(dir, `settings.json.tmp.${process.pid}`);
+    (0, import_node_fs2.writeFileSync)(tmp, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    (0, import_node_fs2.renameSync)(tmp, target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// dist/hooks/lib/project-state.js
+var import_node_child_process = require("node:child_process");
+var import_node_fs3 = require("node:fs");
+var import_node_path3 = require("node:path");
 var GRAMATR_DIR = ".gramatr";
 function findProjectRoot(startDir = process.cwd()) {
   let dir = startDir;
   for (; ; ) {
-    if ((0, import_node_fs2.existsSync)((0, import_node_path2.join)(dir, GRAMATR_DIR)))
+    if ((0, import_node_fs3.existsSync)((0, import_node_path3.join)(dir, GRAMATR_DIR)))
       return dir;
-    const parent = (0, import_node_path2.dirname)(dir);
+    const parent = (0, import_node_path3.dirname)(dir);
     if (parent === dir)
       return startDir;
     dir = parent;
@@ -747,13 +788,13 @@ function canonicalizeProjectRoot(dir) {
   const commonDir = git(["rev-parse", "--git-common-dir"]);
   if (!gitDir || !commonDir)
     return dir;
-  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path2.join)(dir, p);
+  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path3.join)(dir, p);
   const absGitDir = abs(gitDir);
   const absCommonDir = abs(commonDir);
   if (absGitDir === absCommonDir)
     return dir;
-  const mainRoot = (0, import_node_path2.dirname)(absCommonDir);
-  if ((0, import_node_fs2.existsSync)((0, import_node_path2.join)(mainRoot, GRAMATR_DIR)))
+  const mainRoot = (0, import_node_path3.dirname)(absCommonDir);
+  if ((0, import_node_fs3.existsSync)((0, import_node_path3.join)(mainRoot, GRAMATR_DIR)))
     return mainRoot;
   return dir;
 }
@@ -787,30 +828,30 @@ function resolveProjectDir(opts = {}) {
 var CORE_FILE = "project.json";
 var RUNTIME_FILE = "runtime.json";
 function getStatePaths(projectDir) {
-  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR);
+  const dir = (0, import_node_path3.join)(projectDir, GRAMATR_DIR);
   return {
-    core: (0, import_node_path2.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path2.join)(dir, RUNTIME_FILE)
+    core: (0, import_node_path3.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path3.join)(dir, RUNTIME_FILE)
   };
 }
 var SCHEMA_VERSION = 1;
 function atomicWriteJson(filePath, dir, payload) {
-  if (!(0, import_node_fs2.existsSync)(dir)) {
-    (0, import_node_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
+  if (!(0, import_node_fs3.existsSync)(dir)) {
+    (0, import_node_fs3.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const tmp = `${filePath}.tmp.${process.pid}`;
-  (0, import_node_fs2.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs2.renameSync)(tmp, filePath);
+  (0, import_node_fs3.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs3.renameSync)(tmp, filePath);
   try {
-    (0, import_node_fs2.chmodSync)(filePath, 384);
+    (0, import_node_fs3.chmodSync)(filePath, 384);
   } catch {
   }
 }
 function readJson(filePath) {
   try {
-    if (!(0, import_node_fs2.existsSync)(filePath))
+    if (!(0, import_node_fs3.existsSync)(filePath))
       return null;
-    return JSON.parse((0, import_node_fs2.readFileSync)(filePath, "utf8"));
+    return JSON.parse((0, import_node_fs3.readFileSync)(filePath, "utf8"));
   } catch {
     return null;
   }
@@ -822,11 +863,11 @@ function migrateCore(core) {
   return core;
 }
 function synthesizeFromLegacy(projectDir) {
-  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR);
-  const legacyProject = readJson((0, import_node_path2.join)(dir, "project.json"));
-  const legacySettings = readJson((0, import_node_path2.join)(dir, "settings.json"));
-  const legacyGit = readJson((0, import_node_path2.join)(dir, "git-context.json"));
-  const legacySession = readJson((0, import_node_path2.join)(dir, "session.json"));
+  const dir = (0, import_node_path3.join)(projectDir, GRAMATR_DIR);
+  const legacyProject = readJson((0, import_node_path3.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path3.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path3.join)(dir, "git-context.json"));
+  const legacySession = readJson((0, import_node_path3.join)(dir, "session.json"));
   const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
   if (!project_id)
     return null;
@@ -886,7 +927,7 @@ function readProjectState(projectDir) {
 }
 function confirmProject(projectDir, args) {
   const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR);
+  const dir = (0, import_node_path3.join)(projectDir, GRAMATR_DIR);
   const next = {
     schema_version: SCHEMA_VERSION,
     project: args.project,
@@ -903,7 +944,7 @@ function readRuntime(projectDir) {
 }
 function patchRuntime(projectDir, patch) {
   const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR);
+  const dir = (0, import_node_path3.join)(projectDir, GRAMATR_DIR);
   const prev = readRuntime(projectDir);
   const next = { ...prev, ...patch };
   if (JSON.stringify(prev) === JSON.stringify(next)) {
@@ -917,17 +958,17 @@ function writeActiveSession(projectDir, session) {
 
 // dist/hooks/lib/bootstrap-git-remote.js
 var import_node_child_process2 = require("node:child_process");
-var import_node_fs3 = require("node:fs");
-var import_node_path3 = require("node:path");
+var import_node_fs4 = require("node:fs");
+var import_node_path4 = require("node:path");
 function resolveBootstrapGitRemote(projectDir) {
   try {
-    const proj = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    const proj = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path4.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     if (typeof proj.git_remote === "string" && proj.git_remote)
       return proj.git_remote;
   } catch {
   }
   try {
-    const ctx = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(projectDir, ".gramatr", "git-context.json"), "utf8"));
+    const ctx = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path4.join)(projectDir, ".gramatr", "git-context.json"), "utf8"));
     if (typeof ctx.remote_url === "string" && ctx.remote_url)
       return ctx.remote_url;
   } catch {
@@ -946,8 +987,8 @@ function resolveBootstrapGitRemote(projectDir) {
 }
 
 // dist/hooks/lib/session-root-registry.js
-var import_node_fs4 = require("node:fs");
-var import_node_path4 = require("node:path");
+var import_node_fs5 = require("node:fs");
+var import_node_path5 = require("node:path");
 init_config_runtime();
 var DEFAULT_REGISTRY_TTL_DAYS = 14;
 function registryTtlMs() {
@@ -955,7 +996,7 @@ function registryTtlMs() {
   return days * 24 * 60 * 60 * 1e3;
 }
 function registryDir() {
-  return (0, import_node_path4.join)(getHomeDir(), ".gramatr", "sessions");
+  return (0, import_node_path5.join)(getHomeDir(), ".gramatr", "sessions");
 }
 function sessionFileName(sessionId) {
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
@@ -967,7 +1008,7 @@ function sessionRootPath(sessionId) {
   const name = sessionFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path4.join)(registryDir(), name);
+  return (0, import_node_path5.join)(registryDir(), name);
 }
 function writeSessionRoot(sessionId, entry) {
   const dest = sessionRootPath(sessionId);
@@ -977,8 +1018,8 @@ function writeSessionRoot(sessionId, entry) {
     return false;
   try {
     const dir = registryDir();
-    if (!(0, import_node_fs4.existsSync)(dir))
-      (0, import_node_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
+    if (!(0, import_node_fs5.existsSync)(dir))
+      (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const prev = readRaw(dest);
     const createdAt = prev && typeof prev.created_at === "string" && prev.created_at ? prev.created_at : now;
@@ -992,10 +1033,10 @@ function writeSessionRoot(sessionId, entry) {
     if (entry.client_type)
       payload.client_type = entry.client_type;
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs4.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs4.renameSync)(tmp, dest);
+    (0, import_node_fs5.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs5.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs4.chmodSync)(dest, 384);
+      (0, import_node_fs5.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -1005,9 +1046,9 @@ function writeSessionRoot(sessionId, entry) {
 }
 function readRaw(path2) {
   try {
-    if (!(0, import_node_fs4.existsSync)(path2))
+    if (!(0, import_node_fs5.existsSync)(path2))
       return null;
-    return JSON.parse((0, import_node_fs4.readFileSync)(path2, "utf8"));
+    return JSON.parse((0, import_node_fs5.readFileSync)(path2, "utf8"));
   } catch {
     return null;
   }
@@ -1025,15 +1066,15 @@ function readSessionRoot(sessionId) {
     const lastSeen = Date.parse(raw.last_seen_at);
     if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
       try {
-        (0, import_node_fs4.rmSync)(path2, { force: true });
+        (0, import_node_fs5.rmSync)(path2, { force: true });
       } catch {
       }
       return null;
     }
   }
-  if (!(0, import_node_fs4.existsSync)(raw.project_root)) {
+  if (!(0, import_node_fs5.existsSync)(raw.project_root)) {
     try {
-      (0, import_node_fs4.rmSync)(path2, { force: true });
+      (0, import_node_fs5.rmSync)(path2, { force: true });
     } catch {
     }
     return null;
@@ -1042,7 +1083,7 @@ function readSessionRoot(sessionId) {
 }
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path4.join)(home, ".gramatr", "debug");
+  return (0, import_node_path5.join)(home, ".gramatr", "debug");
 }
 function recordRegistryResolution(resolution, sessionId, clientType) {
   if (resolution === "hit")
@@ -1055,19 +1096,19 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
   };
   try {
     const dir = registryDebugDir();
-    if (!(0, import_node_fs4.existsSync)(dir))
-      (0, import_node_fs4.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path4.join)(dir, "registry-resolution.jsonl");
+    if (!(0, import_node_fs5.existsSync)(dir))
+      (0, import_node_fs5.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path5.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs4.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs4.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs5.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs5.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > REGISTRY_SAMPLE_CAP) {
       existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
     }
-    (0, import_node_fs4.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs5.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -1303,13 +1344,13 @@ async function defaultResolveProject(args) {
 }
 
 // dist/hooks/lib/session-rest-token.js
-var import_node_fs6 = require("node:fs");
-var import_node_path6 = require("node:path");
+var import_node_fs7 = require("node:fs");
+var import_node_path7 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var SESSION_FILE = ".session";
 var SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
 function getSessionTokenPath(projectDir) {
-  return (0, import_node_path6.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
+  return (0, import_node_path7.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
@@ -1326,17 +1367,17 @@ function normalizeRestTokenBlock(block) {
   return null;
 }
 function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR2);
-  if (!(0, import_node_fs6.existsSync)(dir)) {
-    (0, import_node_fs6.mkdirSync)(dir, { recursive: true, mode: 448 });
+  const dir = (0, import_node_path7.join)(projectDir, GRAMATR_DIR2);
+  if (!(0, import_node_fs7.existsSync)(dir)) {
+    (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
   const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs6.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs6.renameSync)(tmp, dest);
+  (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs7.renameSync)(tmp, dest);
   try {
-    (0, import_node_fs6.chmodSync)(dest, 384);
+    (0, import_node_fs7.chmodSync)(dest, 384);
   } catch {
   }
 }
@@ -1348,10 +1389,52 @@ function persistBootstrapRestToken(projectDir, block) {
   return true;
 }
 
+// dist/hooks/lib/telemetry-token.js
+var import_node_fs8 = require("node:fs");
+var import_node_path8 = require("node:path");
+var GRAMATR_DIR3 = ".gramatr";
+var TELEMETRY_TOKEN_FILE = ".telemetry-token";
+function getTelemetryTokenPath(projectDir) {
+  return (0, import_node_path8.join)(projectDir, GRAMATR_DIR3, TELEMETRY_TOKEN_FILE);
+}
+function normalizeTelemetryTokenBlock(block) {
+  if (!block || typeof block !== "object")
+    return null;
+  const { token, expires_at, base_url, aud, issued_at, collector_endpoint } = block;
+  if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
+    const file = { token, expires_at, base_url, aud };
+    if (typeof issued_at === "string" && issued_at.length > 0)
+      file.issued_at = issued_at;
+    if (typeof collector_endpoint === "string" && collector_endpoint.length > 0) {
+      file.collector_endpoint = collector_endpoint;
+    }
+    return file;
+  }
+  return null;
+}
+function writeTelemetryToken(projectDir, file) {
+  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR3);
+  if (!(0, import_node_fs8.existsSync)(dir)) {
+    (0, import_node_fs8.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
+  const dest = getTelemetryTokenPath(projectDir);
+  const tmp = `${dest}.tmp.${process.pid}`;
+  (0, import_node_fs8.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs8.renameSync)(tmp, dest);
+}
+function persistBootstrapTelemetryToken(projectDir, block) {
+  const file = normalizeTelemetryTokenBlock(block);
+  if (!file)
+    return false;
+  writeTelemetryToken(projectDir, file);
+  return true;
+}
+
 // dist/hooks/lib/mint-credential-store.js
 var import_node_child_process4 = require("node:child_process");
-var import_node_fs7 = require("node:fs");
-var import_node_path7 = require("node:path");
+var import_node_fs9 = require("node:fs");
+var import_node_path9 = require("node:path");
 init_config_runtime();
 var spawnImpl = import_node_child_process4.spawnSync;
 var platformImpl = null;
@@ -1363,7 +1446,7 @@ var KEYRING_ACCOUNT = "gramatr";
 var FILE_BACKEND_NAME = ".mint-credential";
 var KEYRING_CMD_TIMEOUT_MS = 3e3;
 function getFileBackendPath() {
-  return (0, import_node_path7.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
+  return (0, import_node_path9.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
 }
 function fileBackendForced() {
   return isKeyringFileOnlyFromEnv();
@@ -1412,15 +1495,15 @@ function windowsWrite(secret) {
 }
 function fileWrite(record) {
   try {
-    const dir = (0, import_node_path7.join)(getHomeDir(), ".gramatr");
-    if (!(0, import_node_fs7.existsSync)(dir))
-      (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path9.join)(getHomeDir(), ".gramatr");
+    if (!(0, import_node_fs9.existsSync)(dir))
+      (0, import_node_fs9.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getFileBackendPath();
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs7.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
-    (0, import_node_fs7.renameSync)(tmp, dest);
+    (0, import_node_fs9.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs9.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs7.chmodSync)(dest, 384);
+      (0, import_node_fs9.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -1477,15 +1560,15 @@ function getToken2() {
     return envToken;
   if (PLUGIN_DATA_DIR) {
     try {
-      const cfg = JSON.parse((0, import_node_fs8.readFileSync)((0, import_node_path8.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path10.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
     }
   }
   try {
-    const credFile = (0, import_node_path8.resolve)(HOME_DIR, ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs8.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path10.resolve)(HOME_DIR, ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -1583,6 +1666,16 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
       // #3536 follow-up — carry issued_at through to .session when present.
       ...typeof rt.issued_at === "string" && rt.issued_at ? { issued_at: rt.issued_at } : {}
     } : void 0;
+    const tt = parsed.telemetry_token;
+    const telemetryToken = tt && typeof tt.token === "string" && tt.token && typeof tt.expires_at === "string" && typeof tt.base_url === "string" && typeof tt.aud === "string" ? {
+      token: tt.token,
+      expires_at: tt.expires_at,
+      base_url: tt.base_url,
+      aud: tt.aud,
+      ...typeof tt.issued_at === "string" && tt.issued_at ? { issued_at: tt.issued_at } : {},
+      // #4718 — server-authoritative OTLP collector endpoint.
+      ...typeof tt.collector_endpoint === "string" && tt.collector_endpoint ? { collector_endpoint: tt.collector_endpoint } : {}
+    } : void 0;
     const mc = parsed.mint_credential;
     const mintCredential = mc && typeof mc.token === "string" && mc.token && typeof mc.expires_at === "string" && mc.expires_at && typeof mc.device_id === "string" && mc.device_id ? { token: mc.token, expires_at: mc.expires_at, device_id: mc.device_id } : void 0;
     const sessionPayload = {
@@ -1592,6 +1685,7 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
       resolved: typeof parsed.resolved === "boolean" ? parsed.resolved : void 0,
       project_slug: typeof parsed.project_slug === "string" ? parsed.project_slug : null,
       rest_token: restToken,
+      telemetry_token: telemetryToken,
       mint_credential: mintCredential
     };
     if (user && (user.id || user.email) || sessionPayload.gramatr_session_id) {
@@ -1616,20 +1710,20 @@ function writeSessionJson(payload, clientSessionId) {
     client_type: "claude-code",
     written_at: (/* @__PURE__ */ new Date()).toISOString()
   };
-  const dir = (0, import_node_path8.join)(PROJECT_DIR, ".gramatr");
-  const target = (0, import_node_path8.join)(dir, "session.json");
+  const dir = (0, import_node_path10.join)(PROJECT_DIR, ".gramatr");
+  const target = (0, import_node_path10.join)(dir, "session.json");
   try {
-    const prev = JSON.parse((0, import_node_fs8.readFileSync)(target, "utf8"));
+    const prev = JSON.parse((0, import_node_fs10.readFileSync)(target, "utf8"));
     if (prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type) {
       return;
     }
   } catch {
   }
   try {
-    (0, import_node_fs8.mkdirSync)(dir, { recursive: true });
-    const tmp = (0, import_node_path8.join)(dir, `session.json.tmp.${process.pid}`);
-    (0, import_node_fs8.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
-    (0, import_node_fs8.renameSync)(tmp, target);
+    (0, import_node_fs10.mkdirSync)(dir, { recursive: true });
+    const tmp = (0, import_node_path10.join)(dir, `session.json.tmp.${process.pid}`);
+    (0, import_node_fs10.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+    (0, import_node_fs10.renameSync)(tmp, target);
   } catch {
   }
   try {
@@ -1738,6 +1832,22 @@ async function main() {
     try {
       persistBootstrapRestToken(PROJECT_DIR, payload.rest_token);
     } catch {
+    }
+  }
+  if (payload.telemetry_token) {
+    try {
+      persistBootstrapTelemetryToken(PROJECT_DIR, payload.telemetry_token);
+    } catch {
+    }
+    if (effectivePayload.gramatr_session_id && payload.telemetry_token.collector_endpoint && !readTelemetryDisabled()) {
+      try {
+        writeOtelSettings(HOME_DIR, {
+          sessionId: effectivePayload.gramatr_session_id,
+          token: payload.telemetry_token.token,
+          collectorEndpoint: payload.telemetry_token.collector_endpoint
+        });
+      } catch {
+      }
     }
   }
   if (payload.mint_credential) {

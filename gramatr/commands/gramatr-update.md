@@ -22,16 +22,16 @@ Use the Read tool — do not shell out to `cat`/`grep`.
 
 ## Step 2 — Read the bundled block
 
-Read the bundled v6 block from the plugin install. It ships at:
+Read the bundled v7 block from the plugin install. It ships at:
 
-- `${CLAUDE_PLUGIN_ROOT}/blocks/gramatr-block-v6.md` (when running inside the
+- `${CLAUDE_PLUGIN_ROOT}/blocks/gramatr-block-v7.md` (when running inside the
   Claude Code plugin), OR
-- `<repo-root>/packages/mcp/blocks/gramatr-block-v6.md` (when developing
+- `<repo-root>/packages/mcp/blocks/gramatr-block-v7.md` (when developing
   against the source tree).
 
-The file content begins with `<!-- gramatr-block: v6 — managed by @gramatr/mcp plugin -->`
+The file content begins with `<!-- gramatr-block: v7 — managed by @gramatr/mcp plugin -->`
 and ends with `<!-- /gramatr-block -->`. Use it verbatim — do not paraphrase
-or "improve" the content. The block was carefully drafted with a v2 → v3 → v4 → v5 → v6
+or "improve" the content. The block was carefully drafted with a v2 → v3 → v4 → v5 → v6 → v7
 changelog and is the single source of truth.
 
 ## Step 3 — Choose which file(s) to update
@@ -50,8 +50,8 @@ For each target file, compute what would change:
 
 - If the file has `<!-- gramatr-block: vN -->` and `<!-- /gramatr-block -->`
   markers: the diff replaces everything between (and including) those markers
-  with the bundled v6 block.
-- If the markers are absent: the diff appends a blank line plus the v6 block
+  with the bundled v7 block.
+- If the markers are absent: the diff appends a blank line plus the v7 block
   to the end of the file (or creates the file with the block as its only
   content, if the file does not yet exist).
 
@@ -67,7 +67,7 @@ ambiguous — abort with a one-line explanation; do not proceed.
 
 On confirmation, write each chosen file using the Write tool. Preserve every
 byte outside the markers. After each write, confirm with one line:
-`Updated <path> → gramatr-block v6`.
+`Updated <path> → gramatr-block v7`.
 
 If the file did not exist, create it. If the markers were absent, append
 (blank line + block) to the end.
