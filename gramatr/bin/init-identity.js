@@ -1696,7 +1696,7 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
   }
   return null;
 }
-function writeSessionJson(payload, clientSessionId) {
+function writeSessionJson(payload, clientSessionId, model) {
   const sessionId = payload.gramatr_session_id;
   const projectId = payload.gramatr_project_id ?? "";
   if (!sessionId) {
@@ -1708,13 +1708,14 @@ function writeSessionJson(payload, clientSessionId) {
     project_id: projectId,
     client_session_id: clientSessionId || null,
     client_type: "claude-code",
-    written_at: (/* @__PURE__ */ new Date()).toISOString()
+    written_at: (/* @__PURE__ */ new Date()).toISOString(),
+    ...model ? { model } : {}
   };
   const dir = (0, import_node_path10.join)(PROJECT_DIR, ".gramatr");
   const target = (0, import_node_path10.join)(dir, "session.json");
   try {
     const prev = JSON.parse((0, import_node_fs10.readFileSync)(target, "utf8"));
-    if (prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type) {
+    if (prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "")) {
       return;
     }
   } catch {
@@ -1767,7 +1768,7 @@ async function resolveHomingFallback(reason, _clientSessionId, _payload) {
 async function readHookInputFromStdin() {
   if (process.stdin.isTTY) {
     warnSkip("tty_stdin", { session_id_source: "none" });
-    return { sessionId: "", cwd: "" };
+    return { sessionId: "", cwd: "", model: "" };
   }
   try {
     const chunks = [];
@@ -1775,18 +1776,19 @@ async function readHookInputFromStdin() {
       chunks.push(chunk);
     const raw = Buffer.concat(chunks).toString("utf8").trim();
     if (!raw)
-      return { sessionId: "", cwd: "" };
+      return { sessionId: "", cwd: "", model: "" };
     const parsed = JSON.parse(raw);
     return {
       sessionId: typeof parsed.session_id === "string" ? parsed.session_id : "",
-      cwd: typeof parsed.cwd === "string" ? parsed.cwd : ""
+      cwd: typeof parsed.cwd === "string" ? parsed.cwd : "",
+      model: typeof parsed.model === "string" ? parsed.model : ""
     };
   } catch {
-    return { sessionId: "", cwd: "" };
+    return { sessionId: "", cwd: "", model: "" };
   }
 }
 async function main() {
-  const { sessionId: clientSessionId, cwd: hookCwd } = await readHookInputFromStdin();
+  const { sessionId: clientSessionId, cwd: hookCwd, model: hookModel } = await readHookInputFromStdin();
   PROJECT_DIR = resolveSessionRoot({
     sessionId: clientSessionId || void 0,
     cwd: hookCwd || void 0,
@@ -1794,6 +1796,10 @@ async function main() {
   });
   if (clientSessionId) {
     writeSessionRoot(clientSessionId, { project_root: PROJECT_DIR, client_type: "claude-code" });
+  }
+  try {
+    (0, import_node_fs10.unlinkSync)((0, import_node_path10.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json"));
+  } catch {
   }
   const cached = readCachedUserIdentity();
   const identityFresh = cached && !isUserIdentityStale(cached);
@@ -1820,7 +1826,7 @@ async function main() {
     if (homed)
       effectivePayload = { ...payload, gramatr_project_id: homed };
   }
-  writeSessionJson(effectivePayload, clientSessionId);
+  writeSessionJson(effectivePayload, clientSessionId, hookModel);
   if (clientSessionId && effectivePayload.gramatr_project_id) {
     writeSessionRoot(clientSessionId, {
       project_root: PROJECT_DIR,
