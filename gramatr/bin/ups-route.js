@@ -1482,7 +1482,11 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
   const reqBody = JSON.stringify({
     prompt,
     client_type: "claude-code",
-    client_version: VERSION
+    // Guard against a broken VERSION resolution (falls back to '0.0.0' when no
+    // real package.json version is found on the upward walk) poisoning the
+    // server's manifest.update_available computation — mirrors routing.ts's
+    // client_version guard (#1869).
+    ...VERSION && VERSION !== "0.0.0" ? { client_version: VERSION } : {}
   });
   const t0 = Date.now();
   const record = (forToken, status, additionalContext, route) => {
