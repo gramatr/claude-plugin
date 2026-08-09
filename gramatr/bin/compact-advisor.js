@@ -45,6 +45,94 @@ function findProjectRoot(startDir = process.cwd()) {
     dir = parent;
   }
 }
+var CORE_FILE = "project.json";
+var RUNTIME_FILE = "runtime.json";
+function getStatePaths(projectDir) {
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  return {
+    core: (0, import_node_path.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path.join)(dir, RUNTIME_FILE)
+  };
+}
+var SCHEMA_VERSION = 1;
+function readJson(filePath) {
+  try {
+    if (!(0, import_node_fs.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_node_fs.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function migrateCore(core) {
+  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
+    return { ...core, schema_version: SCHEMA_VERSION };
+  }
+  return core;
+}
+function synthesizeFromLegacy(projectDir) {
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  const legacyProject = readJson((0, import_node_path.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path.join)(dir, "git-context.json"));
+  const legacySession = readJson((0, import_node_path.join)(dir, "session.json"));
+  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
+  if (!project_id)
+    return null;
+  const project = {
+    project_id,
+    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
+  };
+  if (legacySettings?.project_entity_id) {
+    project.project_entity_id = legacySettings.project_entity_id;
+  }
+  if (legacySettings?.project_name) {
+    project.display_name = legacySettings.project_name;
+  }
+  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
+    project.previously_known_as = legacySettings.previously_known_as;
+  }
+  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
+  const drift = git_remote ? { git_remote } : {};
+  const state = {
+    schema_version: SCHEMA_VERSION,
+    project,
+    drift,
+    recent_sessions: []
+  };
+  if (legacySession?.session_id) {
+    const active = { session_id: legacySession.session_id };
+    if (legacySession.client_session_id)
+      active.client_session_id = legacySession.client_session_id;
+    if (legacySession.interaction_id)
+      active.interaction_id = legacySession.interaction_id;
+    if (legacySession.client_type)
+      active.client_type = legacySession.client_type;
+    if (legacySession.written_at)
+      active.written_at = legacySession.written_at;
+    state.active_session = active;
+  }
+  return state;
+}
+function readProjectState(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const rawCore = readJson(paths.core);
+  const isNewShape = rawCore !== null && typeof rawCore.schema_version === "number" && rawCore.project !== void 0 && typeof rawCore.project.project_id === "string";
+  if (!isNewShape) {
+    return synthesizeFromLegacy(projectDir);
+  }
+  const core = migrateCore(rawCore);
+  const runtime = readJson(paths.runtime) ?? {};
+  return {
+    schema_version: core.schema_version,
+    project: core.project,
+    drift: core.drift ?? {},
+    active_session: runtime.active_session,
+    recent_sessions: runtime.recent_sessions ?? [],
+    last_handoff: runtime.last_handoff,
+    statusline_cache: runtime.statusline_cache
+  };
+}
 
 // dist/bin/compact-advisor.js
 var PROJECT_DIR = findProjectRoot();
@@ -61,6 +149,10 @@ function getModelLimit(model) {
   return 1e6;
 }
 function getSessionModel() {
+  const state = readProjectState(PROJECT_DIR);
+  const fromState = state?.active_session?.model;
+  if (typeof fromState === "string" && fromState)
+    return fromState;
   try {
     const data = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "session.json"), "utf8"));
     return typeof data.model === "string" ? data.model : "";

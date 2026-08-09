@@ -76,6 +76,9 @@ function isKeyringFileOnlyFromEnv() {
   const raw = process.env.GRAMATR_KEYRING_FILE_ONLY;
   return raw === "1" || raw === "true";
 }
+function isRuntimeGitContextEnabledFromEnv() {
+  return process.env.GRAMATR_RUNTIME_GIT_CONTEXT_ENABLED === "true";
+}
 var init_config_runtime = __esm({
   "dist/config-runtime.js"() {
     "use strict";
@@ -955,17 +958,29 @@ function patchRuntime(projectDir, patch) {
 function writeActiveSession(projectDir, session) {
   patchRuntime(projectDir, { active_session: session });
 }
+function readGitContext(projectDir) {
+  return readRuntime(projectDir).git_context ?? null;
+}
 
 // dist/hooks/lib/bootstrap-git-remote.js
 var import_node_child_process2 = require("node:child_process");
 var import_node_fs4 = require("node:fs");
 var import_node_path4 = require("node:path");
+init_config_runtime();
 function resolveBootstrapGitRemote(projectDir) {
   try {
     const proj = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path4.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     if (typeof proj.git_remote === "string" && proj.git_remote)
       return proj.git_remote;
   } catch {
+  }
+  if (isRuntimeGitContextEnabledFromEnv()) {
+    try {
+      const ctx = readGitContext(projectDir);
+      if (ctx?.remote_url)
+        return ctx.remote_url;
+    } catch {
+    }
   }
   try {
     const ctx = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path4.join)(projectDir, ".gramatr", "git-context.json"), "utf8"));
@@ -1732,7 +1747,8 @@ function writeSessionJson(payload, clientSessionId, model) {
       session_id: sessionId,
       client_session_id: clientSessionId || void 0,
       client_type: "claude-code",
-      written_at: next.written_at
+      written_at: next.written_at,
+      ...next.model ? { model: next.model } : {}
     });
   } catch {
   }

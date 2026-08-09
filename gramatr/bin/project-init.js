@@ -21,6 +21,70 @@ function findProjectRoot(startDir = process.cwd()) {
     dir = parent;
   }
 }
+var CORE_FILE = "project.json";
+var RUNTIME_FILE = "runtime.json";
+function getStatePaths(projectDir) {
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  return {
+    core: (0, import_node_path.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path.join)(dir, RUNTIME_FILE)
+  };
+}
+function atomicWriteJson(filePath, dir, payload) {
+  if (!(0, import_node_fs.existsSync)(dir)) {
+    (0, import_node_fs.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  (0, import_node_fs.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs.renameSync)(tmp, filePath);
+  try {
+    (0, import_node_fs.chmodSync)(filePath, 384);
+  } catch {
+  }
+}
+function readJson(filePath) {
+  try {
+    if (!(0, import_node_fs.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_node_fs.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function readRuntime(projectDir) {
+  return readJson(getStatePaths(projectDir).runtime) ?? {};
+}
+function patchRuntime(projectDir, patch) {
+  const paths = getStatePaths(projectDir);
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  const prev = readRuntime(projectDir);
+  const next = { ...prev, ...patch };
+  if (JSON.stringify(prev) === JSON.stringify(next)) {
+    return;
+  }
+  atomicWriteJson(paths.runtime, dir, next);
+}
+function writeGitContext(projectDir, ctx) {
+  patchRuntime(projectDir, { git_context: ctx });
+}
+function buildGitContextPayload(input) {
+  const payload = {
+    remote_url: input.remoteUrl,
+    branch: input.branch,
+    cwd: input.cwd,
+    updated_at: input.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (input.projectId)
+    payload.project_id = input.projectId;
+  if (input.slug)
+    payload.slug = input.slug;
+  return payload;
+}
+
+// dist/config-runtime.js
+function isRuntimeGitContextEnabledFromEnv() {
+  return process.env.GRAMATR_RUNTIME_GIT_CONTEXT_ENABLED === "true";
+}
 
 // dist/bin/project-init.js
 var PROJECT_DIR = findProjectRoot();
@@ -36,13 +100,24 @@ var remote_url = (0, import_node_child_process.spawnSync)("git", ["remote", "get
 var branch = (0, import_node_child_process.spawnSync)("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: PROJECT_DIR, encoding: "utf8" }).stdout?.trim() ?? "";
 var outDir = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr");
 (0, import_node_fs2.mkdirSync)(outDir, { recursive: true });
-(0, import_node_fs2.writeFileSync)((0, import_node_path2.join)(outDir, "git-context.json"), JSON.stringify({
-  ...savedProject.project_id ? { project_id: savedProject.project_id } : {},
-  ...savedProject.slug ? { slug: savedProject.slug } : {},
-  remote_url: remote_url || savedProject.git_remote || "",
+var gitContextPayload = buildGitContextPayload({
+  projectId: savedProject.project_id,
+  slug: savedProject.slug,
+  remoteUrl: remote_url || savedProject.git_remote || "",
   branch,
-  cwd: PROJECT_DIR,
-  updated_at: (/* @__PURE__ */ new Date()).toISOString()
-}, null, 2) + "\n", "utf8");
+  cwd: PROJECT_DIR
+});
+(0, import_node_fs2.writeFileSync)((0, import_node_path2.join)(outDir, "git-context.json"), JSON.stringify(gitContextPayload, null, 2) + "\n", "utf8");
+if (isRuntimeGitContextEnabledFromEnv()) {
+  try {
+    writeGitContext(PROJECT_DIR, {
+      remote_url: gitContextPayload.remote_url,
+      branch: gitContextPayload.branch,
+      cwd: gitContextPayload.cwd,
+      updated_at: gitContextPayload.updated_at
+    });
+  } catch {
+  }
+}
 process.stderr.write(`gr\u0101matr: project context written (branch: ${branch}, project_id: ${savedProject.project_id ?? "unresolved"})
 `);

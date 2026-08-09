@@ -292,28 +292,40 @@ function checkGitCommand(command, cwd) {
       };
     }
   }
-  if (/git\s+tag\b/.test(trimmed)) {
-    const workDir = cwd || process.cwd();
-    if (!(0, import_node_fs.existsSync)((0, import_node_path.join)(workDir, "Cargo.toml"))) {
-      let version;
-      try {
-        const pkg = JSON.parse((0, import_node_fs.readFileSync)((0, import_node_path.join)(workDir, "package.json"), "utf8"));
-        version = pkg.version;
-      } catch {
-        return {
-          allow: false,
-          reason: "Run pnpm build and build-all-targets before tagging. Could not verify build artifacts."
-        };
-      }
-      if (!version) {
-        return {
-          allow: false,
-          reason: "Cannot read version from package.json. Run pnpm build before tagging."
-        };
-      }
-      const result = verifyBuildBeforeTag(workDir, version);
-      if (!result.ok) {
-        return { allow: false, reason: result.reason };
+  const TAG_READ_ONLY_FLAG = /^(-l|--list|-v|--verify|-n|--contains|--points-at)$/;
+  if (/^git\s+tag\b/.test(trimmed)) {
+    const tagArgs = trimmed.replace(/^git\s+tag\b/, "").trim().split(/\s+/).filter(Boolean);
+    const hasOnlyReadOnlyFlags = tagArgs.every((arg) => TAG_READ_ONLY_FLAG.test(arg) || !arg.startsWith("-"));
+    const hasReadOnlyFlag = tagArgs.some((arg) => TAG_READ_ONLY_FLAG.test(arg));
+    const isReadOnlyTagCommand = hasOnlyReadOnlyFlags && hasReadOnlyFlag;
+    if (!isReadOnlyTagCommand) {
+      const workDir = cwd || process.cwd();
+      const isRust = (0, import_node_fs.existsSync)((0, import_node_path.join)(workDir, "Cargo.toml"));
+      const isNode = !isRust && (0, import_node_fs.existsSync)((0, import_node_path.join)(workDir, "package.json"));
+      if (isRust) {
+      } else if (isNode) {
+        let version;
+        try {
+          const pkg = JSON.parse((0, import_node_fs.readFileSync)((0, import_node_path.join)(workDir, "package.json"), "utf8"));
+          version = pkg.version;
+        } catch {
+          return {
+            allow: false,
+            reason: "Run pnpm build and build-all-targets before tagging. Could not verify build artifacts."
+          };
+        }
+        if (!version) {
+          return {
+            allow: false,
+            reason: "Cannot read version from package.json. Run pnpm build before tagging."
+          };
+        }
+        const result = verifyBuildBeforeTag(workDir, version);
+        if (!result.ok) {
+          return { allow: false, reason: result.reason };
+        }
+      } else {
+        return { allow: true };
       }
     }
   }
