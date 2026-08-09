@@ -403,6 +403,64 @@ function collectGitState(cwd) {
   return state;
 }
 
+// dist/hooks/lib/context-usage.js
+var MODEL_CONTEXT_LIMITS = [
+  // Haiku is 200k on every generation — checked first so a hypothetical
+  // future "haiku-5" can't fall through to a 1M entry below.
+  { match: "haiku", limit: 2e5 },
+  // Older-generation 200k carve-outs.
+  { match: "sonnet-4-5", limit: 2e5 },
+  { match: "sonnet-4.5", limit: 2e5 },
+  { match: "opus-4-5", limit: 2e5 },
+  { match: "opus-4.5", limit: 2e5 },
+  { match: "sonnet-4-0", limit: 2e5 },
+  { match: "sonnet-4.0", limit: 2e5 },
+  { match: "opus-4-0", limit: 2e5 },
+  { match: "opus-4.0", limit: 2e5 },
+  // Current Claude 5 family + the 4.6/4.7/4.8-class Opus and Sonnet 4.6 —
+  // all 1M standard. Named explicitly (not left to the generic fallback
+  // below) so this table reads as a real matrix, not an accident of order.
+  { match: "fable", limit: 1e6 },
+  { match: "mythos", limit: 1e6 },
+  { match: "opus-5", limit: 1e6 },
+  { match: "opus-4-8", limit: 1e6 },
+  { match: "opus-4.8", limit: 1e6 },
+  { match: "opus-4-7", limit: 1e6 },
+  { match: "opus-4.7", limit: 1e6 },
+  { match: "opus-4-6", limit: 1e6 },
+  { match: "opus-4.6", limit: 1e6 },
+  { match: "sonnet-5", limit: 1e6 },
+  { match: "sonnet-4-6", limit: 1e6 },
+  { match: "sonnet-4.6", limit: 1e6 },
+  // Catch-all: any other opus/sonnet string (e.g. a future dated snapshot
+  // not yet named above) defaults to the current 1M standard, since
+  // current-gen is now the common case.
+  { match: "opus", limit: 1e6 },
+  { match: "sonnet", limit: 1e6 }
+];
+var DEFAULT_CONTEXT_LIMIT = 2e5;
+function getModelLimit(model) {
+  const m = model.toLowerCase();
+  if (!m)
+    return DEFAULT_CONTEXT_LIMIT;
+  for (const entry of MODEL_CONTEXT_LIMITS) {
+    if (m.includes(entry.match))
+      return entry.limit;
+  }
+  return DEFAULT_CONTEXT_LIMIT;
+}
+function formatContextUsageSegment(ctxFile, limit) {
+  const used = ctxFile?.ctx_tokens_used;
+  if (typeof used !== "number" || used <= 0)
+    return "";
+  if (!Number.isFinite(limit) || limit <= 0)
+    return "";
+  const pct = Math.round(used / limit * 100);
+  const usedK = Math.round(used / 1e3);
+  const limitK = Math.round(limit / 1e3);
+  return `\u25D4 ${pct}% ctx (${usedK}K/${limitK}K)`;
+}
+
 // dist/bin/statusline.js
 var REMOTE_URL = process.env.GRAMATR_URL ?? "https://api.gramatr.com";
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
@@ -421,6 +479,42 @@ function getSessionId() {
   } catch {
     return null;
   }
+}
+function getSessionModel() {
+  const state = readProjectState(PROJECT_DIR);
+  const fromState = state?.active_session?.model;
+  if (typeof fromState === "string" && fromState)
+    return fromState;
+  const sessionFile = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "session.json");
+  if (!(0, import_node_fs3.existsSync)(sessionFile))
+    return "";
+  try {
+    const data = JSON.parse((0, import_node_fs3.readFileSync)(sessionFile, "utf8"));
+    return typeof data.model === "string" ? data.model : "";
+  } catch {
+    return "";
+  }
+}
+function readCtxTokensFile() {
+  const path = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json");
+  if (!(0, import_node_fs3.existsSync)(path))
+    return null;
+  try {
+    return JSON.parse((0, import_node_fs3.readFileSync)(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function contextUsageSegment() {
+  const ctxFile = readCtxTokensFile();
+  const limit = getModelLimit(getSessionModel());
+  return formatContextUsageSegment(ctxFile, limit);
+}
+function composeWithContextUsage(serverText) {
+  const segment = contextUsageSegment();
+  if (!segment)
+    return serverText;
+  return `${serverText} \u2502 ${segment}`;
 }
 function cacheStatuslineText(text) {
   try {
@@ -442,7 +536,7 @@ async function fetchAndWrite(url, headers) {
     const text = await res.text();
     if (!text)
       return false;
-    process.stdout.write(text);
+    process.stdout.write(composeWithContextUsage(text));
     cacheStatuslineText(text);
     return true;
   } catch {
@@ -487,7 +581,7 @@ function tryFileFallback() {
     const text = (0, import_node_fs3.readFileSync)(path, "utf8").trim();
     if (!text)
       return false;
-    process.stdout.write(text);
+    process.stdout.write(composeWithContextUsage(text));
     return true;
   } catch {
     return false;

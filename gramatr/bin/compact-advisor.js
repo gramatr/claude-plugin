@@ -134,20 +134,56 @@ function readProjectState(projectDir) {
   };
 }
 
-// dist/bin/compact-advisor.js
-var PROJECT_DIR = findProjectRoot();
-var HOME = (0, import_node_os.homedir)();
+// dist/hooks/lib/context-usage.js
+var MODEL_CONTEXT_LIMITS = [
+  // Haiku is 200k on every generation — checked first so a hypothetical
+  // future "haiku-5" can't fall through to a 1M entry below.
+  { match: "haiku", limit: 2e5 },
+  // Older-generation 200k carve-outs.
+  { match: "sonnet-4-5", limit: 2e5 },
+  { match: "sonnet-4.5", limit: 2e5 },
+  { match: "opus-4-5", limit: 2e5 },
+  { match: "opus-4.5", limit: 2e5 },
+  { match: "sonnet-4-0", limit: 2e5 },
+  { match: "sonnet-4.0", limit: 2e5 },
+  { match: "opus-4-0", limit: 2e5 },
+  { match: "opus-4.0", limit: 2e5 },
+  // Current Claude 5 family + the 4.6/4.7/4.8-class Opus and Sonnet 4.6 —
+  // all 1M standard. Named explicitly (not left to the generic fallback
+  // below) so this table reads as a real matrix, not an accident of order.
+  { match: "fable", limit: 1e6 },
+  { match: "mythos", limit: 1e6 },
+  { match: "opus-5", limit: 1e6 },
+  { match: "opus-4-8", limit: 1e6 },
+  { match: "opus-4.8", limit: 1e6 },
+  { match: "opus-4-7", limit: 1e6 },
+  { match: "opus-4.7", limit: 1e6 },
+  { match: "opus-4-6", limit: 1e6 },
+  { match: "opus-4.6", limit: 1e6 },
+  { match: "sonnet-5", limit: 1e6 },
+  { match: "sonnet-4-6", limit: 1e6 },
+  { match: "sonnet-4.6", limit: 1e6 },
+  // Catch-all: any other opus/sonnet string (e.g. a future dated snapshot
+  // not yet named above) defaults to the current 1M standard, since
+  // current-gen is now the common case.
+  { match: "opus", limit: 1e6 },
+  { match: "sonnet", limit: 1e6 }
+];
+var DEFAULT_CONTEXT_LIMIT = 2e5;
 function getModelLimit(model) {
   const m = model.toLowerCase();
   if (!m)
-    return 2e5;
-  if (m.includes("haiku"))
-    return 2e5;
-  if (m.includes("sonnet-4-5") || m.includes("sonnet-4.5") || m.includes("opus-4-5") || m.includes("opus-4.5")) {
-    return 2e5;
+    return DEFAULT_CONTEXT_LIMIT;
+  for (const entry of MODEL_CONTEXT_LIMITS) {
+    if (m.includes(entry.match))
+      return entry.limit;
   }
-  return 1e6;
+  return DEFAULT_CONTEXT_LIMIT;
 }
+
+// dist/bin/compact-advisor.js
+var PROJECT_DIR = findProjectRoot();
+var HOME = (0, import_node_os.homedir)();
 function getSessionModel() {
   const state = readProjectState(PROJECT_DIR);
   const fromState = state?.active_session?.model;
