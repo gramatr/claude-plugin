@@ -1426,13 +1426,25 @@ function loudRecoveryFailureWarning() {
   };
 }
 function degradedSurfaceWarning(remoteUrl, now = Date.now(), scriptPath = process.argv[1] ?? "") {
-  if (scriptPath && isCachedMcpOAuthEntryStale(remoteUrl, now)) {
-    return {
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: buildStaleAuthPurgeInstruction(remoteUrl, scriptPath)
+  if (isCachedMcpOAuthEntryStale(remoteUrl, now)) {
+    try {
+      const result = runStaleAuthPurge(remoteUrl);
+      return {
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: describePurgeOutcome(result, remoteUrl)
+        }
+      };
+    } catch {
+      if (scriptPath) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "UserPromptSubmit",
+            additionalContext: buildStaleAuthPurgeInstruction(remoteUrl, scriptPath)
+          }
+        };
       }
-    };
+    }
   }
   return loudRecoveryFailureWarning();
 }
