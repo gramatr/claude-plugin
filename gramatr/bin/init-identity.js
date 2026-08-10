@@ -977,8 +977,19 @@ function patchRuntime(projectDir, patch) {
   }
   atomicWriteJson(paths.runtime, dir, next);
 }
-function writeActiveSession(projectDir, session) {
-  patchRuntime(projectDir, { active_session: session });
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const defined = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== void 0)
+      defined[k] = v;
+  }
+  const next = {
+    session_id: prev?.session_id ?? "",
+    ...prev,
+    ...defined
+  };
+  patchRuntime(projectDir, { active_session: next });
 }
 function readGitContext(projectDir) {
   return readRuntime(projectDir).git_context ?? null;
@@ -1750,22 +1761,23 @@ function writeSessionJson(payload, clientSessionId, model) {
   };
   const dir = (0, import_node_path10.join)(PROJECT_DIR, ".gramatr");
   const target = (0, import_node_path10.join)(dir, "session.json");
+  let sessionJsonUnchanged = false;
   try {
     const prev = JSON.parse((0, import_node_fs10.readFileSync)(target, "utf8"));
-    if (prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "")) {
-      return;
+    sessionJsonUnchanged = prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "");
+  } catch {
+  }
+  if (!sessionJsonUnchanged) {
+    try {
+      (0, import_node_fs10.mkdirSync)(dir, { recursive: true });
+      const tmp = (0, import_node_path10.join)(dir, `session.json.tmp.${process.pid}`);
+      (0, import_node_fs10.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+      (0, import_node_fs10.renameSync)(tmp, target);
+    } catch {
     }
-  } catch {
   }
   try {
-    (0, import_node_fs10.mkdirSync)(dir, { recursive: true });
-    const tmp = (0, import_node_path10.join)(dir, `session.json.tmp.${process.pid}`);
-    (0, import_node_fs10.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
-    (0, import_node_fs10.renameSync)(tmp, target);
-  } catch {
-  }
-  try {
-    writeActiveSession(PROJECT_DIR, {
+    mergeActiveSession(PROJECT_DIR, {
       session_id: sessionId,
       client_session_id: clientSessionId || void 0,
       client_type: "claude-code",

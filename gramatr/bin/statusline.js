@@ -231,8 +231,19 @@ function patchRuntime(projectDir, patch) {
   }
   atomicWriteJson(paths.runtime, dir, next);
 }
-function writeActiveSession(projectDir, session) {
-  patchRuntime(projectDir, { active_session: session });
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const defined = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== void 0)
+      defined[k] = v;
+  }
+  const next = {
+    session_id: prev?.session_id ?? "",
+    ...prev,
+    ...defined
+  };
+  patchRuntime(projectDir, { active_session: next });
 }
 
 // dist/hooks/lib/session-rest-token.js
@@ -673,8 +684,12 @@ async function main() {
   if (ownStdinModel) {
     try {
       const existing = readProjectState(PROJECT_DIR)?.active_session;
-      if (existing?.session_id && existing.model !== ownStdinModel) {
-        writeActiveSession(PROJECT_DIR, { ...existing, model: ownStdinModel });
+      if (existing?.model !== ownStdinModel) {
+        const sid = getSessionId();
+        mergeActiveSession(PROJECT_DIR, {
+          ...sid ? { session_id: sid } : {},
+          model: ownStdinModel
+        });
       }
     } catch {
     }

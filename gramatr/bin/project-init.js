@@ -180,6 +180,20 @@ function patchRuntime(projectDir, patch) {
   }
   atomicWriteJson(paths.runtime, dir, next);
 }
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const defined = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== void 0)
+      defined[k] = v;
+  }
+  const next = {
+    session_id: prev?.session_id ?? "",
+    ...prev,
+    ...defined
+  };
+  patchRuntime(projectDir, { active_session: next });
+}
 function writeGitContext(projectDir, ctx) {
   patchRuntime(projectDir, { git_context: ctx });
 }
@@ -204,8 +218,32 @@ function isRuntimeGitContextEnabledFromEnv() {
 
 // dist/bin/project-init.js
 var PROJECT_DIR = findProjectRoot();
+function readSessionStartModel() {
+  if (process.stdin.isTTY)
+    return "";
+  let raw;
+  try {
+    raw = (0, import_node_fs2.readFileSync)(0, "utf8");
+  } catch {
+    return "";
+  }
+  if (!raw.trim())
+    return "";
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed.model === "string" ? parsed.model : "";
+  } catch {
+    return "";
+  }
+}
 try {
   migrateProjectCore(PROJECT_DIR);
+} catch {
+}
+try {
+  const model = readSessionStartModel();
+  if (model)
+    mergeActiveSession(PROJECT_DIR, { model });
 } catch {
 }
 var savedProject = {};

@@ -225,7 +225,9 @@ function readConfig() {
     return {};
   }
 }
-function computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto) {
+function computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto, modelKnown = true) {
+  if (!modelKnown)
+    return "";
   if (ctxTokensUsed <= 0)
     return "";
   const pct = Math.round(ctxTokensUsed / limit * 100);
@@ -265,6 +267,7 @@ async function main() {
   const compactPct = cfg.context_window?.compact_pct ?? 80;
   const auto = cfg.auto_compact?.auto ?? false;
   const model = getSessionModel();
+  const modelKnown = model !== "";
   const limit = getModelLimit(model);
   const ctxFile = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json");
   let advisory = "";
@@ -275,7 +278,7 @@ async function main() {
       ctxTokensUsed = data.ctx_tokens_used ?? 0;
     } catch {
     }
-    advisory = computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto);
+    advisory = computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto, modelKnown);
   }
   const reflectionFile = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "reflection-due.json");
   if ((0, import_node_fs2.existsSync)(reflectionFile)) {
