@@ -30,6 +30,7 @@ function getStatePaths(projectDir) {
     runtime: (0, import_node_path.join)(dir, RUNTIME_FILE)
   };
 }
+var SCHEMA_VERSION = 1;
 function atomicWriteJson(filePath, dir, payload) {
   if (!(0, import_node_fs.existsSync)(dir)) {
     (0, import_node_fs.mkdirSync)(dir, { recursive: true, mode: 448 });
@@ -50,6 +51,121 @@ function readJson(filePath) {
   } catch {
     return null;
   }
+}
+function migrateCore(core) {
+  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
+    return { ...core, schema_version: SCHEMA_VERSION };
+  }
+  return core;
+}
+function isNewShapeCore(raw) {
+  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
+}
+function legacyCoreIdentity(projectDir) {
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  const legacyProject = readJson((0, import_node_path.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path.join)(dir, "git-context.json"));
+  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
+  if (!project_id)
+    return null;
+  const project = {
+    project_id,
+    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
+  };
+  if (legacySettings?.project_entity_id) {
+    project.project_entity_id = legacySettings.project_entity_id;
+  }
+  if (legacySettings?.project_name) {
+    project.display_name = legacySettings.project_name;
+  }
+  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
+    project.previously_known_as = legacySettings.previously_known_as;
+  }
+  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
+  const drift = git_remote ? { git_remote } : {};
+  return { project, drift };
+}
+function legacyActiveSession(projectDir) {
+  const legacySession = readJson((0, import_node_path.join)(projectDir, GRAMATR_DIR, "session.json"));
+  if (!legacySession?.session_id)
+    return void 0;
+  const active = { session_id: legacySession.session_id };
+  if (legacySession.client_session_id)
+    active.client_session_id = legacySession.client_session_id;
+  if (legacySession.interaction_id)
+    active.interaction_id = legacySession.interaction_id;
+  if (legacySession.client_type)
+    active.client_type = legacySession.client_type;
+  if (legacySession.written_at)
+    active.written_at = legacySession.written_at;
+  return active;
+}
+function migrateLegacyCore(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
+  return { schema_version: SCHEMA_VERSION, project: identity.project, drift: identity.drift };
+}
+function synthesizeFromLegacy(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
+  const state = {
+    schema_version: SCHEMA_VERSION,
+    project: identity.project,
+    drift: identity.drift,
+    recent_sessions: []
+  };
+  const active = legacyActiveSession(projectDir);
+  if (active)
+    state.active_session = active;
+  return state;
+}
+function readProjectState(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const rawCore = readJson(paths.core);
+  const runtime = readJson(paths.runtime) ?? {};
+  if (isNewShapeCore(rawCore)) {
+    const core = migrateCore(rawCore);
+    return {
+      schema_version: core.schema_version,
+      project: core.project,
+      drift: core.drift ?? {},
+      active_session: runtime.active_session,
+      recent_sessions: runtime.recent_sessions ?? [],
+      last_handoff: runtime.last_handoff,
+      statusline_cache: runtime.statusline_cache
+    };
+  }
+  const legacy = synthesizeFromLegacy(projectDir);
+  if (!legacy)
+    return null;
+  return {
+    ...legacy,
+    active_session: runtime.active_session ?? legacy.active_session,
+    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
+    last_handoff: runtime.last_handoff ?? legacy.last_handoff,
+    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
+  };
+}
+function migrateProjectCore(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  const rawCore = readJson(paths.core);
+  const upgraded = isNewShapeCore(rawCore) ? migrateCore(rawCore) : migrateLegacyCore(projectDir);
+  if (!upgraded)
+    return "unidentified";
+  const next = {
+    schema_version: SCHEMA_VERSION,
+    project: upgraded.project,
+    drift: upgraded.drift ?? {}
+  };
+  if (rawCore && JSON.stringify(rawCore) === JSON.stringify(next)) {
+    return "unchanged";
+  }
+  atomicWriteJson(paths.core, dir, next);
+  return "migrated";
 }
 function readRuntime(projectDir) {
   return readJson(getStatePaths(projectDir).runtime) ?? {};
@@ -88,11 +204,19 @@ function isRuntimeGitContextEnabledFromEnv() {
 
 // dist/bin/project-init.js
 var PROJECT_DIR = findProjectRoot();
+try {
+  migrateProjectCore(PROJECT_DIR);
+} catch {
+}
 var savedProject = {};
 try {
-  const projectFile = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "project.json");
-  if ((0, import_node_fs2.existsSync)(projectFile)) {
-    savedProject = JSON.parse((0, import_node_fs2.readFileSync)(projectFile, "utf8"));
+  const state = readProjectState(PROJECT_DIR);
+  if (state) {
+    savedProject = {
+      project_id: state.project.project_id || void 0,
+      slug: state.project.slug || void 0,
+      git_remote: state.drift.git_remote
+    };
   }
 } catch {
 }

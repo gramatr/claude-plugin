@@ -133,12 +133,14 @@ function migrateCore(core) {
   }
   return core;
 }
-function synthesizeFromLegacy(projectDir) {
+function isNewShapeCore(raw) {
+  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
+}
+function legacyCoreIdentity(projectDir) {
   const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
   const legacyProject = readJson((0, import_node_path.join)(dir, "project.json"));
   const legacySettings = readJson((0, import_node_path.join)(dir, "settings.json"));
   const legacyGit = readJson((0, import_node_path.join)(dir, "git-context.json"));
-  const legacySession = readJson((0, import_node_path.join)(dir, "session.json"));
   const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
   if (!project_id)
     return null;
@@ -157,43 +159,63 @@ function synthesizeFromLegacy(projectDir) {
   }
   const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
   const drift = git_remote ? { git_remote } : {};
+  return { project, drift };
+}
+function legacyActiveSession(projectDir) {
+  const legacySession = readJson((0, import_node_path.join)(projectDir, GRAMATR_DIR, "session.json"));
+  if (!legacySession?.session_id)
+    return void 0;
+  const active = { session_id: legacySession.session_id };
+  if (legacySession.client_session_id)
+    active.client_session_id = legacySession.client_session_id;
+  if (legacySession.interaction_id)
+    active.interaction_id = legacySession.interaction_id;
+  if (legacySession.client_type)
+    active.client_type = legacySession.client_type;
+  if (legacySession.written_at)
+    active.written_at = legacySession.written_at;
+  return active;
+}
+function synthesizeFromLegacy(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
   const state = {
     schema_version: SCHEMA_VERSION,
-    project,
-    drift,
+    project: identity.project,
+    drift: identity.drift,
     recent_sessions: []
   };
-  if (legacySession?.session_id) {
-    const active = { session_id: legacySession.session_id };
-    if (legacySession.client_session_id)
-      active.client_session_id = legacySession.client_session_id;
-    if (legacySession.interaction_id)
-      active.interaction_id = legacySession.interaction_id;
-    if (legacySession.client_type)
-      active.client_type = legacySession.client_type;
-    if (legacySession.written_at)
-      active.written_at = legacySession.written_at;
+  const active = legacyActiveSession(projectDir);
+  if (active)
     state.active_session = active;
-  }
   return state;
 }
 function readProjectState(projectDir) {
   const paths = getStatePaths(projectDir);
   const rawCore = readJson(paths.core);
-  const isNewShape = rawCore !== null && typeof rawCore.schema_version === "number" && rawCore.project !== void 0 && typeof rawCore.project.project_id === "string";
-  if (!isNewShape) {
-    return synthesizeFromLegacy(projectDir);
-  }
-  const core = migrateCore(rawCore);
   const runtime = readJson(paths.runtime) ?? {};
+  if (isNewShapeCore(rawCore)) {
+    const core = migrateCore(rawCore);
+    return {
+      schema_version: core.schema_version,
+      project: core.project,
+      drift: core.drift ?? {},
+      active_session: runtime.active_session,
+      recent_sessions: runtime.recent_sessions ?? [],
+      last_handoff: runtime.last_handoff,
+      statusline_cache: runtime.statusline_cache
+    };
+  }
+  const legacy = synthesizeFromLegacy(projectDir);
+  if (!legacy)
+    return null;
   return {
-    schema_version: core.schema_version,
-    project: core.project,
-    drift: core.drift ?? {},
-    active_session: runtime.active_session,
-    recent_sessions: runtime.recent_sessions ?? [],
-    last_handoff: runtime.last_handoff,
-    statusline_cache: runtime.statusline_cache
+    ...legacy,
+    active_session: runtime.active_session ?? legacy.active_session,
+    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
+    last_handoff: runtime.last_handoff ?? legacy.last_handoff,
+    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
   };
 }
 function readRuntime(projectDir) {
