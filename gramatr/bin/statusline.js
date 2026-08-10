@@ -465,6 +465,35 @@ function formatContextUsageSegment(ctxFile, limit) {
 var REMOTE_URL = process.env.GRAMATR_URL ?? "https://api.gramatr.com";
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
 var FETCH_TIMEOUT_MS = 2e3;
+var ownStdinModel = "";
+async function readOwnStdinModel() {
+  if (process.stdin.isTTY)
+    return "";
+  let raw;
+  try {
+    raw = (0, import_node_fs3.readFileSync)(0, "utf8");
+  } catch {
+    return "";
+  }
+  if (!raw)
+    return "";
+  try {
+    const data = JSON.parse(raw);
+    const modelField = data.model;
+    if (typeof modelField === "string" && modelField)
+      return modelField;
+    if (modelField && typeof modelField === "object") {
+      const m = modelField;
+      if (typeof m.id === "string" && m.id)
+        return m.id;
+      if (typeof m.display_name === "string" && m.display_name)
+        return m.display_name;
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
 function getSessionId() {
   const state = readProjectState(PROJECT_DIR);
   const fromState = state?.active_session?.session_id;
@@ -481,6 +510,8 @@ function getSessionId() {
   }
 }
 function getSessionModel() {
+  if (ownStdinModel)
+    return ownStdinModel;
   const state = readProjectState(PROJECT_DIR);
   const fromState = state?.active_session?.model;
   if (typeof fromState === "string" && fromState)
@@ -588,6 +619,7 @@ function tryFileFallback() {
   }
 }
 async function main() {
+  ownStdinModel = await readOwnStdinModel();
   const gitState = collectGitState(PROJECT_DIR);
   if (await tryAuthenticated(gitState))
     return;
