@@ -106,6 +106,18 @@ function getStatePaths(projectDir) {
   };
 }
 var SCHEMA_VERSION = 1;
+function atomicWriteJson(filePath, dir, payload) {
+  if (!(0, import_node_fs.existsSync)(dir)) {
+    (0, import_node_fs.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  (0, import_node_fs.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs.renameSync)(tmp, filePath);
+  try {
+    (0, import_node_fs.chmodSync)(filePath, 384);
+  } catch {
+  }
+}
 function readJson(filePath) {
   try {
     if (!(0, import_node_fs.existsSync)(filePath))
@@ -183,6 +195,22 @@ function readProjectState(projectDir) {
     last_handoff: runtime.last_handoff,
     statusline_cache: runtime.statusline_cache
   };
+}
+function readRuntime(projectDir) {
+  return readJson(getStatePaths(projectDir).runtime) ?? {};
+}
+function patchRuntime(projectDir, patch) {
+  const paths = getStatePaths(projectDir);
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  const prev = readRuntime(projectDir);
+  const next = { ...prev, ...patch };
+  if (JSON.stringify(prev) === JSON.stringify(next)) {
+    return;
+  }
+  atomicWriteJson(paths.runtime, dir, next);
+}
+function writeActiveSession(projectDir, session) {
+  patchRuntime(projectDir, { active_session: session });
 }
 
 // dist/hooks/lib/session-rest-token.js
@@ -620,6 +648,15 @@ function tryFileFallback() {
 }
 async function main() {
   ownStdinModel = await readOwnStdinModel();
+  if (ownStdinModel) {
+    try {
+      const existing = readProjectState(PROJECT_DIR)?.active_session;
+      if (existing?.session_id && existing.model !== ownStdinModel) {
+        writeActiveSession(PROJECT_DIR, { ...existing, model: ownStdinModel });
+      }
+    } catch {
+    }
+  }
   const gitState = collectGitState(PROJECT_DIR);
   if (await tryAuthenticated(gitState))
     return;
