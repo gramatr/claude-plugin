@@ -28,7 +28,7 @@ __export(track_tokens_exports, {
 });
 module.exports = __toCommonJS(track_tokens_exports);
 var import_node_fs2 = require("node:fs");
-var import_node_path2 = require("node:path");
+var import_node_path3 = require("node:path");
 
 // dist/hooks/lib/project-state.js
 var import_node_fs = require("node:fs");
@@ -72,6 +72,23 @@ async function readHookStdin() {
   }
 }
 
+// dist/hooks/lib/context-usage.js
+var import_node_path2 = require("node:path");
+function ctxTokensFileName(sessionId) {
+  if (typeof sessionId !== "string")
+    return null;
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `ctx-tokens-${safe}.json`;
+}
+function ctxTokensPath(projectDir, sessionId) {
+  const name = ctxTokensFileName(sessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path2.join)(projectDir, ".gramatr", name);
+}
+
 // dist/bin/track-tokens.js
 var PROJECT_DIR = findProjectRoot();
 function numOrZero(n) {
@@ -101,33 +118,38 @@ function extractCtxTokensUsed(transcriptPath) {
   }
   return lastCtxTokens;
 }
-function writeCtxTokens(projectDir, ctxTokensUsed) {
-  const outDir = (0, import_node_path2.join)(projectDir, ".gramatr");
+function writeCtxTokens(projectDir, sessionId, ctxTokensUsed) {
+  const outDir = (0, import_node_path3.join)(projectDir, ".gramatr");
   (0, import_node_fs2.mkdirSync)(outDir, { recursive: true });
-  (0, import_node_fs2.writeFileSync)((0, import_node_path2.join)(outDir, "ctx-tokens.json"), JSON.stringify({ ctx_tokens_used: ctxTokensUsed, updated_at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n", "utf8");
-  (0, import_node_fs2.writeFileSync)((0, import_node_path2.join)(outDir, "reflection-due.json"), JSON.stringify({ written_at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n", "utf8");
+  const ctxPath = ctxTokensPath(projectDir, sessionId);
+  if (ctxPath) {
+    (0, import_node_fs2.writeFileSync)(ctxPath, JSON.stringify({ ctx_tokens_used: ctxTokensUsed, updated_at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n", "utf8");
+  }
+  (0, import_node_fs2.writeFileSync)((0, import_node_path3.join)(outDir, "reflection-due.json"), JSON.stringify({ written_at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n", "utf8");
 }
-async function runTrackTokens(transcriptPath, projectDir) {
+async function runTrackTokens(transcriptPath, projectDir, sessionId) {
   if (!transcriptPath)
     return;
   try {
     const ctxTokensUsed = extractCtxTokensUsed(transcriptPath);
     if (ctxTokensUsed !== null) {
-      writeCtxTokens(projectDir, ctxTokensUsed);
+      writeCtxTokens(projectDir, sessionId, ctxTokensUsed);
     }
   } catch {
   }
 }
 async function main() {
   let transcriptPath = null;
+  let sessionId = null;
   try {
     const input = await readHookStdin();
     transcriptPath = input.transcript_path ?? null;
+    sessionId = typeof input.session_id === "string" && input.session_id ? input.session_id : null;
   } catch {
     process.stdout.write("{}");
     return;
   }
-  await runTrackTokens(transcriptPath, PROJECT_DIR);
+  await runTrackTokens(transcriptPath, PROJECT_DIR, sessionId);
   process.stdout.write("{}");
 }
 if (process.env.GRAMATR_TRACK_TOKENS_NO_AUTOSTART !== "1") {

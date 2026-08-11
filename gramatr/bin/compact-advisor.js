@@ -22,12 +22,14 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var compact_advisor_exports = {};
 __export(compact_advisor_exports, {
   computeCompactAdvisory: () => computeCompactAdvisory,
+  extractSessionId: () => extractSessionId,
   getModelLimit: () => getModelLimit,
-  getSessionModel: () => getSessionModel
+  getSessionModel: () => getSessionModel,
+  readSessionCtxTokens: () => readSessionCtxTokens
 });
 module.exports = __toCommonJS(compact_advisor_exports);
 var import_node_fs2 = require("node:fs");
-var import_node_path2 = require("node:path");
+var import_node_path3 = require("node:path");
 var import_node_os = require("node:os");
 
 // dist/hooks/lib/project-state.js
@@ -157,6 +159,7 @@ function readProjectState(projectDir) {
 }
 
 // dist/hooks/lib/context-usage.js
+var import_node_path2 = require("node:path");
 var MODEL_CONTEXT_LIMITS = [
   // Haiku is 200k on every generation — checked first so a hypothetical
   // future "haiku-5" can't fall through to a 1M entry below.
@@ -202,6 +205,20 @@ function getModelLimit(model) {
   }
   return DEFAULT_CONTEXT_LIMIT;
 }
+function ctxTokensFileName(sessionId) {
+  if (typeof sessionId !== "string")
+    return null;
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `ctx-tokens-${safe}.json`;
+}
+function ctxTokensPath(projectDir, sessionId) {
+  const name = ctxTokensFileName(sessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path2.join)(projectDir, ".gramatr", name);
+}
 
 // dist/bin/compact-advisor.js
 var PROJECT_DIR = findProjectRoot();
@@ -212,7 +229,7 @@ function getSessionModel() {
   if (typeof fromState === "string" && fromState)
     return fromState;
   try {
-    const data = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "session.json"), "utf8"));
+    const data = JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "session.json"), "utf8"));
     return typeof data.model === "string" ? data.model : "";
   } catch {
     return "";
@@ -220,7 +237,7 @@ function getSessionModel() {
 }
 function readConfig() {
   try {
-    return JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path2.join)(HOME, ".gramatr.json"), "utf8"));
+    return JSON.parse((0, import_node_fs2.readFileSync)((0, import_node_path3.join)(HOME, ".gramatr.json"), "utf8"));
   } catch {
     return {};
   }
@@ -247,6 +264,28 @@ Context is filling up. Recommend the user run /gramatr:continue soon (atomic sav
   }
   return "";
 }
+function extractSessionId(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed)
+    return null;
+  try {
+    const data = JSON.parse(trimmed);
+    return typeof data.session_id === "string" && data.session_id ? data.session_id : null;
+  } catch {
+    return null;
+  }
+}
+function readSessionCtxTokens(projectDir, sessionId) {
+  const ctxPath = ctxTokensPath(projectDir, sessionId);
+  if (!ctxPath || !(0, import_node_fs2.existsSync)(ctxPath))
+    return null;
+  try {
+    const data = JSON.parse((0, import_node_fs2.readFileSync)(ctxPath, "utf8"));
+    return data.ctx_tokens_used ?? 0;
+  } catch {
+    return null;
+  }
+}
 async function main() {
   const chunks = [];
   await new Promise((resolve) => {
@@ -262,6 +301,11 @@ async function main() {
     });
     process.stdin.resume();
   });
+  let sessionId = null;
+  try {
+    sessionId = extractSessionId(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+  }
   const cfg = readConfig();
   const warnPct = cfg.context_window?.warn_pct ?? 85;
   const compactPct = cfg.context_window?.compact_pct ?? 95;
@@ -269,18 +313,15 @@ async function main() {
   const model = getSessionModel();
   const modelKnown = model !== "";
   const limit = getModelLimit(model);
-  const ctxFile = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json");
+  const sessionKnown = sessionId !== null;
   let advisory = "";
-  if ((0, import_node_fs2.existsSync)(ctxFile)) {
-    let ctxTokensUsed = 0;
-    try {
-      const data = JSON.parse((0, import_node_fs2.readFileSync)(ctxFile, "utf8"));
-      ctxTokensUsed = data.ctx_tokens_used ?? 0;
-    } catch {
+  if (sessionKnown) {
+    const ctxTokensUsed = readSessionCtxTokens(PROJECT_DIR, sessionId);
+    if (ctxTokensUsed !== null) {
+      advisory = computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto, modelKnown);
     }
-    advisory = computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto, modelKnown);
   }
-  const reflectionFile = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr", "reflection-due.json");
+  const reflectionFile = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "reflection-due.json");
   if ((0, import_node_fs2.existsSync)(reflectionFile)) {
     let stale = false;
     try {
@@ -325,6 +366,8 @@ if (process.env.GRAMATR_COMPACT_ADVISOR_NO_AUTOSTART !== "1") {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   computeCompactAdvisory,
+  extractSessionId,
   getModelLimit,
-  getSessionModel
+  getSessionModel,
+  readSessionCtxTokens
 });

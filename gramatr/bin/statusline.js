@@ -25,7 +25,7 @@ __export(statusline_exports, {
 });
 module.exports = __toCommonJS(statusline_exports);
 var import_node_fs3 = require("node:fs");
-var import_node_path3 = require("node:path");
+var import_node_path4 = require("node:path");
 
 // dist/hooks/lib/project-state.js
 var import_node_child_process = require("node:child_process");
@@ -465,6 +465,7 @@ function collectGitState(cwd) {
 }
 
 // dist/hooks/lib/context-usage.js
+var import_node_path3 = require("node:path");
 var MODEL_CONTEXT_LIMITS = [
   // Haiku is 200k on every generation — checked first so a hypothetical
   // future "haiku-5" can't fall through to a 1M entry below.
@@ -510,6 +511,20 @@ function getModelLimit(model) {
   }
   return DEFAULT_CONTEXT_LIMIT;
 }
+function ctxTokensFileName(sessionId) {
+  if (typeof sessionId !== "string")
+    return null;
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `ctx-tokens-${safe}.json`;
+}
+function ctxTokensPath(projectDir, sessionId) {
+  const name = ctxTokensFileName(sessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path3.join)(projectDir, ".gramatr", name);
+}
 function formatContextUsageSegment(ctxFile, limit) {
   const used = ctxFile?.ctx_tokens_used;
   if (typeof used !== "number" || used <= 0)
@@ -527,32 +542,36 @@ var REMOTE_URL = process.env.GRAMATR_URL ?? "https://api.gramatr.com";
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
 var FETCH_TIMEOUT_MS = 2e3;
 var ownStdinModel = "";
-async function readOwnStdinModel() {
+var ownStdinSessionId = "";
+async function readOwnStdinPayload() {
+  const empty = { model: "", sessionId: "" };
   if (process.stdin.isTTY)
-    return "";
+    return empty;
   let raw;
   try {
     raw = (0, import_node_fs3.readFileSync)(0, "utf8");
   } catch {
-    return "";
+    return empty;
   }
   if (!raw)
-    return "";
+    return empty;
   try {
     const data = JSON.parse(raw);
+    let model = "";
     const modelField = data.model;
-    if (typeof modelField === "string" && modelField)
-      return modelField;
-    if (modelField && typeof modelField === "object") {
+    if (typeof modelField === "string" && modelField) {
+      model = modelField;
+    } else if (modelField && typeof modelField === "object") {
       const m = modelField;
       if (typeof m.id === "string" && m.id)
-        return m.id;
-      if (typeof m.display_name === "string" && m.display_name)
-        return m.display_name;
+        model = m.id;
+      else if (typeof m.display_name === "string" && m.display_name)
+        model = m.display_name;
     }
-    return "";
+    const sessionId = typeof data.session_id === "string" && data.session_id ? data.session_id : "";
+    return { model, sessionId };
   } catch {
-    return "";
+    return empty;
   }
 }
 function getSessionId() {
@@ -560,7 +579,7 @@ function getSessionId() {
   const fromState = state?.active_session?.session_id;
   if (typeof fromState === "string" && fromState)
     return fromState;
-  const sessionFile = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "session.json");
+  const sessionFile = (0, import_node_path4.join)(PROJECT_DIR, ".gramatr", "session.json");
   if (!(0, import_node_fs3.existsSync)(sessionFile))
     return null;
   try {
@@ -577,7 +596,7 @@ function getSessionModel() {
   const fromState = state?.active_session?.model;
   if (typeof fromState === "string" && fromState)
     return fromState;
-  const sessionFile = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "session.json");
+  const sessionFile = (0, import_node_path4.join)(PROJECT_DIR, ".gramatr", "session.json");
   if (!(0, import_node_fs3.existsSync)(sessionFile))
     return "";
   try {
@@ -587,9 +606,9 @@ function getSessionModel() {
     return "";
   }
 }
-function readCtxTokensFile() {
-  const path = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json");
-  if (!(0, import_node_fs3.existsSync)(path))
+function readCtxTokensFile(sessionId) {
+  const path = ctxTokensPath(PROJECT_DIR, sessionId);
+  if (!path || !(0, import_node_fs3.existsSync)(path))
     return null;
   try {
     return JSON.parse((0, import_node_fs3.readFileSync)(path, "utf8"));
@@ -598,7 +617,9 @@ function readCtxTokensFile() {
   }
 }
 function contextUsageSegment() {
-  const ctxFile = readCtxTokensFile();
+  if (!ownStdinSessionId)
+    return "";
+  const ctxFile = readCtxTokensFile(ownStdinSessionId);
   const limit = getModelLimit(getSessionModel());
   return formatContextUsageSegment(ctxFile, limit);
 }
@@ -610,9 +631,9 @@ function composeWithContextUsage(serverText) {
 }
 function cacheStatuslineText(text) {
   try {
-    const gmtrDir = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr");
+    const gmtrDir = (0, import_node_path4.join)(PROJECT_DIR, ".gramatr");
     (0, import_node_fs3.mkdirSync)(gmtrDir, { recursive: true });
-    (0, import_node_fs3.writeFileSync)((0, import_node_path3.join)(gmtrDir, "statusline.txt"), text, "utf8");
+    (0, import_node_fs3.writeFileSync)((0, import_node_path4.join)(gmtrDir, "statusline.txt"), text, "utf8");
   } catch {
   }
 }
@@ -666,7 +687,7 @@ async function tryLegacy(gitState) {
   return fetchAndWrite(url, {});
 }
 function tryFileFallback() {
-  const path = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "statusline.txt");
+  const path = (0, import_node_path4.join)(PROJECT_DIR, ".gramatr", "statusline.txt");
   if (!(0, import_node_fs3.existsSync)(path))
     return false;
   try {
@@ -680,7 +701,9 @@ function tryFileFallback() {
   }
 }
 async function main() {
-  ownStdinModel = await readOwnStdinModel();
+  const ownStdin = await readOwnStdinPayload();
+  ownStdinModel = ownStdin.model;
+  ownStdinSessionId = ownStdin.sessionId;
   if (ownStdinModel) {
     try {
       const existing = readProjectState(PROJECT_DIR)?.active_session;
