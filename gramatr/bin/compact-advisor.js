@@ -263,8 +263,8 @@ async function main() {
     process.stdin.resume();
   });
   const cfg = readConfig();
-  const warnPct = cfg.context_window?.warn_pct ?? 70;
-  const compactPct = cfg.context_window?.compact_pct ?? 80;
+  const warnPct = cfg.context_window?.warn_pct ?? 85;
+  const compactPct = cfg.context_window?.compact_pct ?? 95;
   const auto = cfg.auto_compact?.auto ?? false;
   const model = getSessionModel();
   const modelKnown = model !== "";
