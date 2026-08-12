@@ -1631,6 +1631,12 @@ function getToken2() {
 }
 async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
   const gitRemote = resolveBootstrapGitRemote(projectDir) ?? "";
+  let localTimezone = null;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    localTimezone = typeof tz === "string" && tz.length > 0 ? tz : null;
+  } catch {
+  }
   const body = {
     jsonrpc: "2.0",
     id: 1,
@@ -1649,7 +1655,8 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
         // ALWAYS present — '' is the load-bearing "no remote, resolve anyway"
         // signal that keeps persistence decoupled from remote resolution.
         git_remote: gitRemote,
-        ...clientSessionId ? { client_session_id: clientSessionId } : {}
+        ...clientSessionId ? { client_session_id: clientSessionId } : {},
+        ...localTimezone ? { timezone: localTimezone, timezone_source: "os" } : {}
       }
     }
   };
@@ -1923,7 +1930,8 @@ async function main() {
     display_name: user.display_name ?? null,
     system_roles: user.system_roles ?? [],
     org_memberships: user.org_memberships ?? [],
-    team_memberships: user.team_memberships ?? []
+    team_memberships: user.team_memberships ?? [],
+    timezone: user.timezone ?? null
   });
   process.stderr.write(`gr\u0101matr: identity cache refreshed (${user.email ?? user.id ?? "unknown"})
 `);

@@ -32,12 +32,10 @@ prefix shown in the help table):
 - `/gramatr:gramatr handoff save` → verb is `handoff`, sub-arg is `save`
 - `/gramatr:gramatr handoff show` → verb is `handoff`, sub-arg is `show`
 - `/gramatr:gramatr status` → verb is `status`
-- `/gramatr:gramatr whoami` → verb is `whoami`
 - `/gramatr:gramatr project list` → verb is `project`, sub-arg is `list`
 - `/gramatr:gramatr project fix gramatr/gramatr` → verb is `project`, sub-arg is `fix gramatr/gramatr`
-- `/gramatr:gramatr reflect the Wave 2 verbs` → verb is `reflect`, sub-arg is `the Wave 2 verbs`
-- `/gramatr:gramatr feedback bad wrong effort` → verb is `feedback`, sub-arg is `bad wrong effort`
-- `/gramatr:gramatr recall handoff hardening` → verb is `recall`, sub-arg is `handoff hardening`
+- `/gramatr:gramatr whoami` → verb is `whoami` → NOT a recognized dispatcher
+  verb (#4855) → redirects to the standalone `/gramatr:whoami` command
 
 Normalize the verb to lowercase before matching.
 
@@ -51,46 +49,19 @@ Print this verb table verbatim, then stop:
 
 ```
 /gramatr:gramatr help                    → this table
-/gramatr:gramatr whoami                  → who am I + server/project/scopes
 /gramatr:gramatr status                  → project pin, drift, version, session health
 /gramatr:gramatr update                  → plugin-vs-server version check + update step
 /gramatr:gramatr init                    → first-run: pin project + name + statusline
 /gramatr:gramatr handoff save|load|show  → session continuity (show = render, no resume)
 /gramatr:gramatr project [list|fix]      → pin repo / list projects / rehome drifted ones
 /gramatr:gramatr statusline              → toggle the statusLine
-/gramatr:gramatr reflect [topic]         → save a LEARN-phase reflection (Q1/Q2/Q3)
-/gramatr:gramatr feedback good|bad [why] → rate this turn's classification
-/gramatr:gramatr recall <query>          → semantic search across your grāmatr memory
 ```
 
-`whoami`, `recall`, `feedback`, and `reflect` also ship as their own native
-commands (#3441) — type `/` and pick `gramatr:whoami`, `gramatr:recall`,
-`gramatr:feedback`, or `gramatr:reflect` to invoke them directly without the
-dispatcher.
-
-### `whoami`
-
-Answers "who am I to grāmatr right now?" — identity, roles, memberships,
-scopes, and the server you're talking to. Read-only.
-
-Call `mcp__plugin_gramatr_gramatr__gramatr_whoami` with no arguments. The
-response has two halves: `caller` (the authenticated grāmatr user) and
-`server` (the MCP endpoint you're connected to).
-
-Render one clean block from the response, then stop:
-
-```
-grāmatr identity
-  user        <caller.email> (<caller.user_id>)
-  name        <caller.display_name or "—">
-  roles       <caller.system_roles joined by ", " or "none">
-  orgs        <each caller.org_memberships as "<org_slug>:<role>", or "none">
-  teams       <each caller.team_memberships as "<team_slug>:<role>", or "none">
-  scopes      <caller.scopes_granted joined by ", " or "none">
-  server      <server.name> v<server.version> (<server.client_detected>)
-```
-
-Do not add fields the tool did not return. Do not write or mutate anything.
+`whoami`, `recall`, `feedback`, and `reflect` are standalone native commands
+only (#4855) — type `/` and pick `gramatr:whoami`, `gramatr:recall`,
+`gramatr:feedback`, or `gramatr:reflect`. They are NOT dispatcher sub-verbs;
+`/gramatr:gramatr whoami` (etc.) is not a recognized verb — see "unknown verb"
+below.
 
 ### `status`
 
@@ -530,19 +501,17 @@ If the user passed `on` or `activate` as a sub-argument, jump straight to
 Activate. If `off` or `deactivate`, jump to Deactivate. Otherwise present
 both options and let the user choose.
 
+(#4855 — shared with `/gramatr:enable-statusline` and `/gramatr:disable-statusline`,
+one implementation instead of three copies. The shared script handles the
+`~/.claude/settings.json` missing-file case that this verb's earlier inline
+form did not.)
+
 #### Activate (install statusLine)
 
 Run the following, then restart Claude Code:
 
 ```bash
-node -e "
-const fs = require('fs');
-const path = require('os').homedir() + '/.claude/settings.json';
-const s = JSON.parse(fs.readFileSync(path, 'utf8'));
-s.statusLine = { type: 'command', command: 'node \"\${CLAUDE_PLUGIN_ROOT}/bin/statusline.js\"' };
-fs.writeFileSync(path, JSON.stringify(s, null, 2) + '\n');
-console.log('statusLine activated');
-"
+node "${CLAUDE_PLUGIN_ROOT}/bin/statusline-toggle.js" enable
 ```
 
 #### Deactivate (remove statusLine)
@@ -550,14 +519,7 @@ console.log('statusLine activated');
 Run the following, then restart Claude Code:
 
 ```bash
-node -e "
-const fs = require('fs');
-const path = require('os').homedir() + '/.claude/settings.json';
-const s = JSON.parse(fs.readFileSync(path, 'utf8'));
-delete s.statusLine;
-fs.writeFileSync(path, JSON.stringify(s, null, 2) + '\n');
-console.log('statusLine removed');
-"
+node "${CLAUDE_PLUGIN_ROOT}/bin/statusline-toggle.js" disable
 ```
 
 #### Verify
@@ -571,94 +533,16 @@ prompt). The bundled `bin/statusline.js` reads `session_id` from that file and
 fetches `GET /api/v1/statusline` (token-authenticated when `.gramatr/.session` exists, legacy `/:session_id` fallback otherwise) on each render — no agent writes
 are involved.
 
-### `reflect`
-
-Saves a LEARN-phase reflection so the meta-learning flywheel sees this
-session. The sub-argument is the topic; if empty, use `"this session"`.
-
-Compose Q1/Q2/Q3 from what actually happened this session — do not invent:
-
-- **Q1 (Self)** — what you would have done differently.
-- **Q2 (Algorithm)** — what a smarter routing algorithm would have done.
-- **Q3 (AI)** — what a fundamentally smarter AI would have done.
-
-Call the MCP tool `save_reflection` with:
-
-```json
-{
-  "task_description": "<topic, 8-12 words>",
-  "effort_level": "<this turn's effort_level from the packet, e.g. standard>",
-  "reflection_q1": "<Q1>",
-  "reflection_q2": "<Q2>",
-  "reflection_q3": "<Q3>",
-  "criteria_count": 0,
-  "criteria_passed": 0,
-  "criteria_failed": 0,
-  "client_type": "claude-code"
-}
-```
-
-`task_description`, `effort_level`, the three `reflection_q*`, and the three
-`criteria_*` counts are required by the tool. Use the real Quality-Gate counts
-from this turn when you have them; otherwise pass `0`. If a `project_id`
-resolved (per the handoff resolution order), include it for provenance.
-Confirm with one line naming the topic, then stop.
-
-### `feedback`
-
-Records classification feedback for THIS turn — the training signal that tunes
-the router. The sub-argument starts with `good` or `bad`; everything after is
-an optional reason.
-
-- `good` → `was_correct: true`.
-- `bad` → `was_correct: false`.
-- If the first token is neither, ask the user "good or bad?" and stop.
-
-Set `original_prompt` to the LAST user prompt verbatim (the prompt this turn's
-classification was made against — required for LoRA training). Put any reason
-text into `quality_notes`.
-
-Call the MCP tool `classification_feedback` with:
-
-```json
-{
-  "timestamp": "<ISO timestamp of this turn>",
-  "was_correct": true,
-  "original_prompt": "<the last user prompt, verbatim>",
-  "quality_notes": "<reason text, if any>",
-  "client_type": "claude-code"
-}
-```
-
-(`was_correct` is a real boolean, not a string. Set it from good/bad.)
-On `bad`, if the reason maps cleanly to a known reason code (e.g. "wrong
-effort" → `wrong_effort`, "wrong intent" → `wrong_intent`), also pass
-`feedback_reason_codes: ["..."]`. Confirm with one line, then stop.
-
-### `recall`
-
-Semantic search across your grāmatr memory. The sub-argument is the query; if
-empty, ask the user what to recall and stop. Read-only.
-
-Call the MCP tool `search_semantic` with:
-
-```json
-{ "query": "<sub-argument>", "limit": 10 }
-```
-
-If a `project_id` resolved (per the handoff resolution order), include it to
-scope the search to this project. Render the top matches, one line each:
-
-```
-<name> · <entity_type> · <short snippet of the match>
-```
-
-If there are no matches, say "No matches for `<query>`." Do not mutate
-anything.
-
 ### unknown verb
 
-Print one line, then stop:
+If the verb is `whoami`, `recall`, `feedback`, or `reflect` (#4855 — these are
+standalone commands only, not dispatcher sub-verbs), print one line naming the
+standalone command and stop:
+
+> `whoami`/`recall`/`feedback`/`reflect` are standalone commands, not
+> `gramatr` sub-verbs — run `/gramatr:<verb>` instead (e.g. `/gramatr:whoami`).
+
+For any other unrecognized verb, print one line, then stop:
 
 > Unknown verb `<verb>`. Run `/gramatr:gramatr help` to see the verb table.
 
@@ -691,3 +575,8 @@ Do not guess what the user meant. Do not call any tools.
   and surfaces the result through the `status` verb's `block` line.
 - `project fix` wraps the temporary public `rehome_project` tool (#3219/#3198)
   and always plans with `dry_run:true` before applying — it never auto-merges.
+- #4855: `whoami`, `recall`, `feedback`, and `reflect` were dispatcher
+  sub-verbs AND standalone commands (#3441) simultaneously — two separate code
+  paths to the same answer. Resolved standalone-only: the dispatcher branches
+  are removed (see "unknown verb" for the redirect), only the standalone
+  commands (`whoami.md`, `recall.md`, `feedback.md`, `reflect.md`) remain.

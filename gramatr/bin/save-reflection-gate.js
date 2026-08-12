@@ -286,6 +286,16 @@ function getLatestClassification(sessionId) {
 var import_node_fs3 = require("node:fs");
 var import_node_path2 = require("node:path");
 
+// dist/hooks/lib/required-actions.js
+function isResourceAction(action) {
+  return action.kind === "resource" || Boolean(action.uri) && !action.name && !action.call && !action.tool;
+}
+function requiredActionIdentifier(action) {
+  if (isResourceAction(action))
+    return action.uri ?? null;
+  return action.name ?? action.call ?? action.tool ?? null;
+}
+
 // dist/hooks/lib/transcript-parser.js
 var import_node_fs2 = require("node:fs");
 function extractLastTurnToolCalls(transcriptPath) {
@@ -309,6 +319,36 @@ function extractLastTurnToolCalls(transcriptPath) {
         for (const block of blocks) {
           if (block?.type === "tool_use" && typeof block?.name === "string") {
             out.add(block.name);
+          }
+        }
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return out;
+}
+function extractLastTurnReadResourceUris(transcriptPath) {
+  const out = /* @__PURE__ */ new Set();
+  try {
+    const content = (0, import_node_fs2.readFileSync)(transcriptPath, "utf8");
+    const lines = content.trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line || !line.trim())
+        continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === "user" || entry.type === "human")
+          break;
+        if (entry.type !== "assistant")
+          continue;
+        const blocks = entry.message?.content;
+        if (!Array.isArray(blocks))
+          continue;
+        for (const block of blocks) {
+          if (block?.type === "tool_use" && (block?.name === "ReadMcpResourceTool" || block?.name === "ReadMcpResource") && typeof block?.input?.uri === "string") {
+            out.add(block.input.uri);
           }
         }
       } catch {
@@ -402,6 +442,39 @@ function evaluateIscClosureGate(lifecycle) {
     remediation: iscClosureRemediation(lifecycle.createdIscSubjects)
   };
 }
+var REQUIRED_ACTIONS_GATE_ID = "required_actions";
+function requiredActionsRemediation(missed) {
+  const lines = missed.map((m) => {
+    const phaseSuffix = m.phase ? ` (${m.phase} phase)` : "";
+    return m.kind === "resource" ? `  \u2022 fetch the resource ${m.identifier} via ReadMcpResourceTool${phaseSuffix}` : `  \u2022 call the tool ${m.identifier}${phaseSuffix}`;
+  });
+  return `This turn's packet declared ${missed.length} required_actions that never happened:
+` + lines.join("\n");
+}
+function evaluateRequiredActionsGate(opts) {
+  const required = opts.requiredActions ?? [];
+  if (required.length === 0)
+    return null;
+  const missed = [];
+  for (const action of required) {
+    if (action.optional === true)
+      continue;
+    const identifier = requiredActionIdentifier(action);
+    if (!identifier)
+      continue;
+    const isResource = isResourceAction(action);
+    const satisfied = isResource ? opts.fetchedResourceUris.has(identifier) : opts.calledTools.has(identifier);
+    if (!satisfied) {
+      missed.push({ identifier, kind: isResource ? "resource" : "tool", phase: action.phase ?? null });
+    }
+  }
+  if (missed.length === 0)
+    return null;
+  return {
+    id: REQUIRED_ACTIONS_GATE_ID,
+    remediation: requiredActionsRemediation(missed)
+  };
+}
 function isVerifierEnabled(env = process.env) {
   const v = env.GRAMATR_TURN_EXIT_VERIFIER;
   return v !== "0" && v !== "false" && v !== "no" && v !== "off";
@@ -483,6 +556,15 @@ function verifyTurnGates(opts) {
       if (iscUnmet)
         unmet.push(iscUnmet);
     }
+    if (!gateFilter || gateFilter.has(REQUIRED_ACTIONS_GATE_ID)) {
+      const raUnmet = evaluateRequiredActionsGate({
+        requiredActions: opts.requiredActions,
+        calledTools: called,
+        fetchedResourceUris: opts.fetchedResourceUris ?? /* @__PURE__ */ new Set()
+      });
+      if (raUnmet)
+        unmet.push(raUnmet);
+    }
     if (unmet.length === 0) {
       return allow();
     }
@@ -525,12 +607,15 @@ function runTurnExitVerifier(opts) {
     const calledTools = extractLastTurnToolCalls(opts.transcriptPath);
     const turnKey = deriveTurnKey(opts.transcriptPath);
     const iscLifecycle = extractIscTaskLifecycle(opts.transcriptPath);
+    const fetchedResourceUris = extractLastTurnReadResourceUris(opts.transcriptPath);
     return verifyTurnGates({
       effort: opts.effort,
       calledTools,
       sessionId: opts.sessionId,
       turnKey,
       iscLifecycle,
+      requiredActions: opts.requiredActions,
+      fetchedResourceUris,
       gateIds: opts.gateIds
     });
   } catch {

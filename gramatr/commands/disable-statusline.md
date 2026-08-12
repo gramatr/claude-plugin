@@ -12,33 +12,14 @@ only the `statusLine` key is removed. No other settings are affected.
 
 **1. Check current settings**
 
-!`node -e "
-const fs = require('fs');
-const path = require('path');
-const p = path.join(process.env.HOME, '.claude', 'settings.json');
-let s = {};
-if (fs.existsSync(p)) { try { s = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {} }
-if (!s.statusLine) {
-  console.log('STATUS: statusLine is not set — nothing to remove.');
-} else {
-  console.log('STATUS: will remove statusLine:', JSON.stringify(s.statusLine));
-}
-"`
+!`node "${CLAUDE_PLUGIN_ROOT}/bin/statusline-toggle.js" check`
 
 **2. Remove the key**
 
-If the step above shows a statusLine entry, remove it:
+(#4855 — shared with `/gramatr:enable-statusline` and the `statusline` verb
+in `/gramatr:gramatr`, one implementation instead of three copies.) Always
+safe to run — it's a no-op if nothing is registered:
 
-!`node -e "
-const fs = require('fs');
-const path = require('path');
-const p = path.join(process.env.HOME, '.claude', 'settings.json');
-let s = {};
-if (fs.existsSync(p)) { try { s = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {} }
-delete s.statusLine;
-fs.writeFileSync(p, JSON.stringify(s, null, 2) + '\n');
-console.log('OK: statusLine removed from', p);
-console.log('Restart Claude Code for the change to take effect.');
-"`
+!`node "${CLAUDE_PLUGIN_ROOT}/bin/statusline-toggle.js" disable`
 
 Report the result to the user.
