@@ -664,8 +664,8 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.32.22") {
-      return "0.32.22";
+    if ("0.32.24") {
+      return "0.32.24";
     }
   } catch {
   }
