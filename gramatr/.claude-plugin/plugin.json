@@ -1,7 +1,7 @@
 {
   "name": "gramatr",
   "displayName": "grāmatr",
-  "version": "0.32.26",
+  "version": "0.32.27",
   "description": "Real-time intelligent context engineering that makes every prompt cheaper, faster, and context-aware.",
   "author": {
     "name": "gramatr",
