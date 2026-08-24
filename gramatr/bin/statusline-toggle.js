@@ -4,7 +4,9 @@
 // dist/bin/statusline-toggle-lib.js
 var import_node_fs = require("node:fs");
 var import_node_path = require("node:path");
+var import_node_url = require("node:url");
 var import_node_os = require("node:os");
+var import_meta = {};
 function settingsPath(homeDir = (0, import_node_os.homedir)()) {
   return (0, import_node_path.join)(homeDir, ".claude", "settings.json");
 }
@@ -36,8 +38,16 @@ function check(homeDir = (0, import_node_os.homedir)()) {
     console.log("STATUS: no statusLine currently set.");
   }
 }
+function resolveStatuslineScriptPath() {
+  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (pluginRoot)
+    return (0, import_node_path.join)(pluginRoot, "bin", "statusline.js");
+  const here = (0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(import_meta.url));
+  return (0, import_node_path.join)(here, "statusline.js");
+}
 function enable(homeDir = (0, import_node_os.homedir)()) {
   const s = readSettings(homeDir);
+  const scriptPath = resolveStatuslineScriptPath();
   s.statusLine = {
     type: "command",
     // Claude Code's statusLine config runs `command` as ONE shell string and
@@ -45,7 +55,7 @@ function enable(homeDir = (0, import_node_os.homedir)()) {
     // shaped { command: 'node', args: [...] } makes Claude Code run bare
     // `node`, which reads the render payload on stdin, fails, and renders
     // nothing. This single-command-string form is the only correct shape.
-    command: 'node "${CLAUDE_PLUGIN_ROOT}/bin/statusline.js"'
+    command: `node "${scriptPath}"`
   };
   writeSettings(s, homeDir);
   console.log(`OK: statusLine registered in ${settingsPath(homeDir)}`);
