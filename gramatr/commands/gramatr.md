@@ -57,11 +57,12 @@ Print this verb table verbatim, then stop:
 /gramatr:gramatr statusline              → toggle the statusLine
 ```
 
-`whoami`, `recall`, `feedback`, and `reflect` are standalone native commands
-only (#4855) — type `/` and pick `gramatr:whoami`, `gramatr:recall`,
-`gramatr:feedback`, or `gramatr:reflect`. They are NOT dispatcher sub-verbs;
-`/gramatr:gramatr whoami` (etc.) is not a recognized verb — see "unknown verb"
-below.
+`whoami`, `recall`, `feedback`, `reflect`, `authenticate`, and `login` are
+standalone native commands only (#4855, #5193 for the latter two) — type `/`
+and pick `gramatr:whoami`, `gramatr:recall`, `gramatr:feedback`,
+`gramatr:reflect`, `gramatr:authenticate`, or `gramatr:login`. They are NOT
+dispatcher sub-verbs; `/gramatr:gramatr whoami` (etc.) is not a recognized
+verb — see "unknown verb" below.
 
 ### `status`
 
@@ -535,12 +536,13 @@ are involved.
 
 ### unknown verb
 
-If the verb is `whoami`, `recall`, `feedback`, or `reflect` (#4855 — these are
-standalone commands only, not dispatcher sub-verbs), print one line naming the
-standalone command and stop:
+If the verb is `whoami`, `recall`, `feedback`, `reflect`, `authenticate`, or
+`login` (#4855, #5193 — these are standalone commands only, not dispatcher
+sub-verbs), print one line naming the standalone command and stop:
 
-> `whoami`/`recall`/`feedback`/`reflect` are standalone commands, not
-> `gramatr` sub-verbs — run `/gramatr:<verb>` instead (e.g. `/gramatr:whoami`).
+> `whoami`/`recall`/`feedback`/`reflect`/`authenticate`/`login` are standalone
+> commands, not `gramatr` sub-verbs — run `/gramatr:<verb>` instead (e.g.
+> `/gramatr:whoami`, `/gramatr:authenticate`).
 
 For any other unrecognized verb, print one line, then stop:
 
