@@ -91,6 +91,14 @@
               "${CLAUDE_PLUGIN_ROOT}/bin/init-identity.js"
             ],
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/headless-login-transport.js"
+            ],
+            "timeout": 5
           }
         ]
       }

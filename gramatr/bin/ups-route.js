@@ -140,7 +140,7 @@ function projectIdFromAud(aud) {
 }
 function debugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path6.join)(home, ".gramatr", "debug");
+  return (0, import_node_path7.join)(home, ".gramatr", "debug");
 }
 function recordTurn1Arming(args) {
   const sample = {
@@ -154,19 +154,19 @@ function recordTurn1Arming(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs6.existsSync)(dir))
-      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path6.join)(dir, "turn1-arming.jsonl");
+    if (!(0, import_node_fs7.existsSync)(dir))
+      (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path7.join)(dir, "turn1-arming.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs7.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs7.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs7.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -180,49 +180,49 @@ function recordBootstrapRecovered(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs6.existsSync)(dir))
-      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path6.join)(dir, "bootstrap-recovered.jsonl");
+    if (!(0, import_node_fs7.existsSync)(dir))
+      (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path7.join)(dir, "bootstrap-recovered.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs7.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs7.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs7.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
 function appendHookPromotionSample(sample) {
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs6.existsSync)(dir))
-      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path6.join)(dir, "hook-promotion.jsonl");
-    const lastPath = (0, import_node_path6.join)(dir, "last-sample.json");
+    if (!(0, import_node_fs7.existsSync)(dir))
+      (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path7.join)(dir, "hook-promotion.jsonl");
+    const lastPath = (0, import_node_path7.join)(dir, "last-sample.json");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs7.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs7.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
-    (0, import_node_fs6.writeFileSync)(lastPath, JSON.stringify(sample, null, 2), "utf8");
+    (0, import_node_fs7.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs7.writeFileSync)(lastPath, JSON.stringify(sample, null, 2), "utf8");
   } catch {
   }
 }
-var import_node_fs6, import_node_path6, MAX_SAMPLES;
+var import_node_fs7, import_node_path7, MAX_SAMPLES;
 var init_hook_promotion_telemetry = __esm({
   "dist/hooks/lib/hook-promotion-telemetry.js"() {
     "use strict";
-    import_node_fs6 = require("node:fs");
-    import_node_path6 = require("node:path");
+    import_node_fs7 = require("node:fs");
+    import_node_path7 = require("node:path");
     init_config_runtime();
     MAX_SAMPLES = 200;
   }
@@ -414,8 +414,8 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Da
 }
 
 // dist/hooks/lib/bootstrap-recovery.js
-var import_node_fs3 = require("node:fs");
-var import_node_path3 = require("node:path");
+var import_node_fs4 = require("node:fs");
+var import_node_path4 = require("node:path");
 init_config_runtime();
 
 // dist/hooks/lib/gramatr-hook-utils.js
@@ -673,8 +673,8 @@ function setLatestClassification(record) {
 var HOME = getHomeDir();
 function resolveMcpUrl() {
   try {
-    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs.readFileSync)(configPath, "utf8"));
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs.readFileSync)(configPath2, "utf8"));
     if (config.server_url)
       return config.server_url;
   } catch {
@@ -693,10 +693,63 @@ function resolveMcpUrl() {
   return "https://api.gramatr.com/mcp";
 }
 
+// dist/user-config.js
+var import_node_fs3 = require("node:fs");
+var import_node_path3 = require("node:path");
+init_config_runtime();
+var DEFAULT_TTL_SECONDS = 3600;
+function configPath() {
+  return (0, import_node_path3.join)(getHomeDir(), ".gramatr.json");
+}
+function readGramatrJson() {
+  try {
+    const raw = (0, import_node_fs3.readFileSync)(configPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+function readCachedUserIdentity() {
+  const cfg = readGramatrJson();
+  if (!cfg.user || typeof cfg.user !== "object")
+    return null;
+  return cfg.user;
+}
+function writeCachedUserIdentity(patch, options) {
+  try {
+    const cfg = readGramatrJson();
+    const existing = cfg.user && typeof cfg.user === "object" ? cfg.user : {};
+    const merged = {
+      ...existing,
+      ...patch,
+      cached_at: (/* @__PURE__ */ new Date()).toISOString(),
+      cache_ttl_seconds: patch.cache_ttl_seconds ?? options?.ttlSeconds ?? existing.cache_ttl_seconds ?? DEFAULT_TTL_SECONDS
+    };
+    const next = { ...cfg, user: merged };
+    (0, import_node_fs3.writeFileSync)(configPath(), JSON.stringify(next, null, 2) + "\n");
+    return true;
+  } catch {
+    return false;
+  }
+}
+function isUserIdentityStale(identity) {
+  if (!identity || !identity.cached_at)
+    return true;
+  const cachedMs = Date.parse(identity.cached_at);
+  if (!Number.isFinite(cachedMs))
+    return true;
+  const ttl = (identity.cache_ttl_seconds ?? DEFAULT_TTL_SECONDS) * 1e3;
+  return Date.now() - cachedMs > ttl;
+}
+
 // dist/hooks/lib/bootstrap-recovery.js
 function readGitRemoteFromProjectFile(projectDir) {
   try {
-    const proj = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    const proj = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path4.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     const drift = proj.drift;
     const remote = typeof proj.git_remote === "string" && proj.git_remote || drift && typeof drift.git_remote === "string" && drift.git_remote || null;
     return remote || null;
@@ -708,8 +761,8 @@ var RECOVERY_TIMEOUT_MS = 3e3;
 var RECOVERY_RETRY_JITTER_MS = 250;
 function findUsableMcpOAuthEntry(remoteUrl) {
   try {
-    const credFile = (0, import_node_path3.resolve)(getHomeDir(), ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs3.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path4.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs4.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -734,7 +787,7 @@ function resolveClientBearerToken(remoteUrl) {
   const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
   if (pluginDataDir) {
     try {
-      const cfg = JSON.parse((0, import_node_fs3.readFileSync)((0, import_node_path3.join)(pluginDataDir, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs4.readFileSync)((0, import_node_path4.join)(pluginDataDir, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
@@ -778,6 +831,30 @@ function parseBootstrapPayload(contentType, raw) {
     return JSON.parse(text);
   } catch {
     return null;
+  }
+}
+function extractUser(parsed) {
+  const user = parsed.user;
+  if (!user || !(user.id || user.email))
+    return null;
+  return user;
+}
+function syncIdentityCacheFromPayload(parsed) {
+  const user = extractUser(parsed);
+  if (!user)
+    return false;
+  try {
+    return writeCachedUserIdentity({
+      id: user.id ?? null,
+      email: user.email ?? null,
+      display_name: user.display_name ?? null,
+      system_roles: user.system_roles ?? [],
+      org_memberships: user.org_memberships ?? [],
+      team_memberships: user.team_memberships ?? [],
+      timezone: user.timezone ?? null
+    });
+  } catch {
+    return false;
   }
 }
 async function attemptRecovery(remoteUrl, token, opts, fetchImpl) {
@@ -826,6 +903,7 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl) {
   const parsed = parseBootstrapPayload(contentType, raw);
   if (!parsed)
     return { status: "error" };
+  syncIdentityCacheFromPayload(parsed);
   const restToken = extractRestToken(parsed);
   if (!restToken) {
     return { status: "no_token" };
@@ -859,13 +937,13 @@ async function recoverSessionToken(opts) {
 }
 
 // dist/hooks/lib/credential-heal.js
-var import_node_fs4 = require("node:fs");
-var import_node_path4 = require("node:path");
+var import_node_fs5 = require("node:fs");
+var import_node_path5 = require("node:path");
 init_config_runtime();
 function isCachedMcpOAuthEntryStale(remoteUrl, now = Date.now()) {
   try {
-    const credFile = (0, import_node_path4.resolve)(getHomeDir(), ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs4.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path5.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs5.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (!mcpOAuth)
       return false;
@@ -915,28 +993,28 @@ function removeStaleMcpOAuthEntry(creds, remoteUrl) {
   return { creds: out, removed };
 }
 function credentialsFilePath() {
-  return (0, import_node_path4.resolve)(getHomeDir(), ".claude", ".credentials.json");
+  return (0, import_node_path5.resolve)(getHomeDir(), ".claude", ".credentials.json");
 }
 var PURGE_CLI_ENV = "GRAMATR_PURGE_STALE_MCP_OAUTH";
 function runStaleAuthPurge(remoteUrl) {
   const credFile = credentialsFilePath();
-  if (!(0, import_node_fs4.existsSync)(credFile)) {
+  if (!(0, import_node_fs5.existsSync)(credFile)) {
     return { status: "no-file", removed: [] };
   }
-  const parsed = JSON.parse((0, import_node_fs4.readFileSync)(credFile, "utf8"));
+  const parsed = JSON.parse((0, import_node_fs5.readFileSync)(credFile, "utf8"));
   const { creds, removed } = removeStaleMcpOAuthEntry(parsed, remoteUrl);
   if (removed.length === 0) {
     return { status: "nothing-to-remove", removed: [] };
   }
   const backupPath = `${credFile}.gramatr-bak-${Date.now()}`;
-  (0, import_node_fs4.copyFileSync)(credFile, backupPath);
+  (0, import_node_fs5.copyFileSync)(credFile, backupPath);
   const tmp = `${credFile}.gramatr-tmp-${process.pid}`;
-  (0, import_node_fs4.writeFileSync)(tmp, `${JSON.stringify(creds, null, 2)}
+  (0, import_node_fs5.writeFileSync)(tmp, `${JSON.stringify(creds, null, 2)}
 `, { encoding: "utf8", mode: 384 });
   try {
-    (0, import_node_fs4.renameSync)(tmp, credFile);
+    (0, import_node_fs5.renameSync)(tmp, credFile);
   } catch (err) {
-    (0, import_node_fs4.rmSync)(tmp, { force: true });
+    (0, import_node_fs5.rmSync)(tmp, { force: true });
     throw err;
   }
   return { status: "purged", removed, backupPath };
@@ -973,12 +1051,12 @@ Now run \`/mcp\` in Claude Code and reconnect gr\u0101matr.
 }
 
 // dist/hooks/lib/server-version-watch.js
-var import_node_fs5 = require("node:fs");
-var import_node_path5 = require("node:path");
+var import_node_fs6 = require("node:fs");
+var import_node_path6 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var SERVER_VERSION_FILE = ".server-version";
 function getServerVersionPath(projectDir) {
-  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SERVER_VERSION_FILE);
+  return (0, import_node_path6.join)(projectDir, GRAMATR_DIR2, SERVER_VERSION_FILE);
 }
 function extractServerVersion(route) {
   if (!route)
@@ -994,9 +1072,9 @@ function extractServerVersion(route) {
 function readLastSeenServerVersion(projectDir) {
   try {
     const path = getServerVersionPath(projectDir);
-    if (!(0, import_node_fs5.existsSync)(path))
+    if (!(0, import_node_fs6.existsSync)(path))
       return null;
-    const raw = (0, import_node_fs5.readFileSync)(path, "utf8").trim();
+    const raw = (0, import_node_fs6.readFileSync)(path, "utf8").trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
@@ -1004,13 +1082,13 @@ function readLastSeenServerVersion(projectDir) {
 }
 function writeLastSeenServerVersion(projectDir, version) {
   try {
-    const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
-    if (!(0, import_node_fs5.existsSync)(dir))
-      (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR2);
+    if (!(0, import_node_fs6.existsSync)(dir))
+      (0, import_node_fs6.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getServerVersionPath(projectDir);
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs5.writeFileSync)(tmp, version + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs5.renameSync)(tmp, dest);
+    (0, import_node_fs6.writeFileSync)(tmp, version + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs6.renameSync)(tmp, dest);
   } catch {
   }
 }
@@ -1061,21 +1139,21 @@ function resolveVersion() {
 var VERSION = resolveVersion();
 
 // dist/hooks/lib/session-root-registry.js
-var import_node_fs8 = require("node:fs");
-var import_node_path8 = require("node:path");
+var import_node_fs9 = require("node:fs");
+var import_node_path9 = require("node:path");
 init_config_runtime();
 
 // dist/hooks/lib/project-state.js
 var import_node_child_process = require("node:child_process");
-var import_node_fs7 = require("node:fs");
-var import_node_path7 = require("node:path");
+var import_node_fs8 = require("node:fs");
+var import_node_path8 = require("node:path");
 var GRAMATR_DIR3 = ".gramatr";
 function findProjectRoot(startDir = process.cwd()) {
   let dir = startDir;
   for (; ; ) {
-    if ((0, import_node_fs7.existsSync)((0, import_node_path7.join)(dir, GRAMATR_DIR3)))
+    if ((0, import_node_fs8.existsSync)((0, import_node_path8.join)(dir, GRAMATR_DIR3)))
       return dir;
-    const parent = (0, import_node_path7.dirname)(dir);
+    const parent = (0, import_node_path8.dirname)(dir);
     if (parent === dir)
       return startDir;
     dir = parent;
@@ -1097,13 +1175,13 @@ function canonicalizeProjectRoot(dir) {
   const commonDir = git(["rev-parse", "--git-common-dir"]);
   if (!gitDir || !commonDir)
     return dir;
-  const abs = (p2) => p2.startsWith("/") ? p2 : (0, import_node_path7.join)(dir, p2);
+  const abs = (p2) => p2.startsWith("/") ? p2 : (0, import_node_path8.join)(dir, p2);
   const absGitDir = abs(gitDir);
   const absCommonDir = abs(commonDir);
   if (absGitDir === absCommonDir)
     return dir;
-  const mainRoot = (0, import_node_path7.dirname)(absCommonDir);
-  if ((0, import_node_fs7.existsSync)((0, import_node_path7.join)(mainRoot, GRAMATR_DIR3)))
+  const mainRoot = (0, import_node_path8.dirname)(absCommonDir);
+  if ((0, import_node_fs8.existsSync)((0, import_node_path8.join)(mainRoot, GRAMATR_DIR3)))
     return mainRoot;
   return dir;
 }
@@ -1137,29 +1215,29 @@ function resolveProjectDir(opts = {}) {
 var CORE_FILE = "project.json";
 var RUNTIME_FILE = "runtime.json";
 function getStatePaths(projectDir) {
-  const dir = (0, import_node_path7.join)(projectDir, GRAMATR_DIR3);
+  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR3);
   return {
-    core: (0, import_node_path7.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path7.join)(dir, RUNTIME_FILE)
+    core: (0, import_node_path8.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path8.join)(dir, RUNTIME_FILE)
   };
 }
 function atomicWriteJson(filePath, dir, payload) {
-  if (!(0, import_node_fs7.existsSync)(dir)) {
-    (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
+  if (!(0, import_node_fs8.existsSync)(dir)) {
+    (0, import_node_fs8.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const tmp = `${filePath}.tmp.${process.pid}`;
-  (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs7.renameSync)(tmp, filePath);
+  (0, import_node_fs8.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs8.renameSync)(tmp, filePath);
   try {
-    (0, import_node_fs7.chmodSync)(filePath, 384);
+    (0, import_node_fs8.chmodSync)(filePath, 384);
   } catch {
   }
 }
 function readJson(filePath) {
   try {
-    if (!(0, import_node_fs7.existsSync)(filePath))
+    if (!(0, import_node_fs8.existsSync)(filePath))
       return null;
-    return JSON.parse((0, import_node_fs7.readFileSync)(filePath, "utf8"));
+    return JSON.parse((0, import_node_fs8.readFileSync)(filePath, "utf8"));
   } catch {
     return null;
   }
@@ -1169,7 +1247,7 @@ function readRuntime(projectDir) {
 }
 function patchRuntime(projectDir, patch) {
   const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path7.join)(projectDir, GRAMATR_DIR3);
+  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR3);
   const prev = readRuntime(projectDir);
   const next = { ...prev, ...patch };
   if (JSON.stringify(prev) === JSON.stringify(next)) {
@@ -1188,7 +1266,7 @@ function registryTtlMs() {
   return days * 24 * 60 * 60 * 1e3;
 }
 function registryDir() {
-  return (0, import_node_path8.join)(getHomeDir(), ".gramatr", "sessions");
+  return (0, import_node_path9.join)(getHomeDir(), ".gramatr", "sessions");
 }
 function sessionFileName(sessionId) {
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
@@ -1200,13 +1278,13 @@ function sessionRootPath(sessionId) {
   const name = sessionFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path8.join)(registryDir(), name);
+  return (0, import_node_path9.join)(registryDir(), name);
 }
 function readRaw(path) {
   try {
-    if (!(0, import_node_fs8.existsSync)(path))
+    if (!(0, import_node_fs9.existsSync)(path))
       return null;
-    return JSON.parse((0, import_node_fs8.readFileSync)(path, "utf8"));
+    return JSON.parse((0, import_node_fs9.readFileSync)(path, "utf8"));
   } catch {
     return null;
   }
@@ -1224,15 +1302,15 @@ function readSessionRoot(sessionId) {
     const lastSeen = Date.parse(raw.last_seen_at);
     if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
       try {
-        (0, import_node_fs8.rmSync)(path, { force: true });
+        (0, import_node_fs9.rmSync)(path, { force: true });
       } catch {
       }
       return null;
     }
   }
-  if (!(0, import_node_fs8.existsSync)(raw.project_root)) {
+  if (!(0, import_node_fs9.existsSync)(raw.project_root)) {
     try {
-      (0, import_node_fs8.rmSync)(path, { force: true });
+      (0, import_node_fs9.rmSync)(path, { force: true });
     } catch {
     }
     return null;
@@ -1241,7 +1319,7 @@ function readSessionRoot(sessionId) {
 }
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path8.join)(home, ".gramatr", "debug");
+  return (0, import_node_path9.join)(home, ".gramatr", "debug");
 }
 function recordRegistryResolution(resolution, sessionId, clientType) {
   if (resolution === "hit")
@@ -1254,19 +1332,19 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
   };
   try {
     const dir = registryDebugDir();
-    if (!(0, import_node_fs8.existsSync)(dir))
-      (0, import_node_fs8.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path8.join)(dir, "registry-resolution.jsonl");
+    if (!(0, import_node_fs9.existsSync)(dir))
+      (0, import_node_fs9.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path9.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs8.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs8.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs9.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs9.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > REGISTRY_SAMPLE_CAP) {
       existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
     }
-    (0, import_node_fs8.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs9.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -1466,6 +1544,13 @@ async function selfHealSessionToken(input, projectDir, fetchImpl) {
   }
   return outcome.status === "recovered" ? outcome.file : null;
 }
+async function maybeRefreshStaleIdentity(input, projectDir, fetchImpl, alreadyRecovered) {
+  if (alreadyRecovered)
+    return;
+  if (!isUserIdentityStale(readCachedUserIdentity()))
+    return;
+  await selfHealSessionToken(input, projectDir, fetchImpl);
+}
 async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
   const prompt = typeof input.prompt === "string" ? input.prompt : "";
   if (!prompt)
@@ -1473,12 +1558,15 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
   const projectDir = projectDirOverride ?? resolveUpsRouteProjectDir(input);
   const remoteUrl = resolveMcpUrl();
   let token = await resolveUsableSessionToken(projectDir, fetchImpl);
+  let selfHealedThisTurn = false;
   if (!token) {
     token = await selfHealSessionToken(input, projectDir, fetchImpl);
+    selfHealedThisTurn = true;
     if (!token) {
       return degradedSurfaceWarning(remoteUrl);
     }
   }
+  await maybeRefreshStaleIdentity(input, projectDir, fetchImpl, selfHealedThisTurn);
   const reqBody = JSON.stringify({
     prompt,
     client_type: "claude-code",
