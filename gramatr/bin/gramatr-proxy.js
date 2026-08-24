@@ -21,6 +21,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // dist/bin/plugin-proxy.js
 var plugin_proxy_exports = {};
 __export(plugin_proxy_exports, {
+  __resetDeviceFlowStateForTests: () => __resetDeviceFlowStateForTests,
   handleMessage: () => handleMessage
 });
 module.exports = __toCommonJS(plugin_proxy_exports);
@@ -664,8 +665,8 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.34.4") {
-      return "0.34.4";
+    if ("0.34.5") {
+      return "0.34.5";
     }
   } catch {
   }
@@ -736,7 +737,8 @@ function getToken() {
   }
   return "";
 }
-async function runDeviceFlow() {
+var inFlightDeviceFlow;
+async function startDeviceFlow() {
   if (purgePluginToken()) {
     process.stderr.write("gr\u0101matr-proxy: purged stale plugin token before clean re-auth\n");
   }
@@ -754,7 +756,19 @@ async function runDeviceFlow() {
   const deviceCode = startPayload.device_code;
   const userCode = startPayload.user_code;
   const verificationUriComplete = startPayload.verification_uri_complete;
-  const interval = typeof startPayload.interval === "number" ? startPayload.interval : 5;
+  const intervalSeconds = typeof startPayload.interval === "number" ? startPayload.interval : 5;
+  const expiresInSeconds = typeof startPayload.expires_in === "number" ? startPayload.expires_in : 900;
+  const now = Date.now();
+  inFlightDeviceFlow = {
+    deviceCode,
+    userCode,
+    verificationUriComplete,
+    intervalSeconds,
+    expiresAt: now + expiresInSeconds * 1e3,
+    // First poll is allowed immediately — the caller won't have had time to
+    // visit the URL yet anyway, and a pending result is cheap either way.
+    nextPollAllowedAt: now
+  };
   process.stderr.write("gr\u0101matr: Authentication required\n");
   if (verificationUriComplete) {
     process.stderr.write(`Open this URL to authorize: ${verificationUriComplete}
@@ -762,37 +776,58 @@ async function runDeviceFlow() {
   }
   process.stderr.write(`Or visit https://app.gramatr.com/device and enter code: ${userCode}
 `);
-  process.stderr.write("Waiting for authorization...\n");
-  let accessToken;
-  while (!accessToken) {
-    await new Promise((res) => setTimeout(res, interval * 1e3));
-    const pollRes = await fetch(`${REMOTE_BASE}/device/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ device_code: deviceCode }),
-      signal: AbortSignal.timeout(1e4)
-    });
-    let pollPayload = {};
-    try {
-      pollPayload = await pollRes.json();
-    } catch {
-    }
-    if (pollRes.ok && typeof pollPayload.access_token === "string") {
-      accessToken = pollPayload.access_token;
-      break;
-    }
-    if (pollRes.status === 428 || pollPayload.error === "authorization_pending") {
-      continue;
-    }
-    const errMsg = pollPayload.error_description ?? pollPayload.error ?? `HTTP ${pollRes.status}`;
-    throw new ProxyAuthError(`Device flow polling failed: ${errMsg}`);
+  return { status: "pending", userCode, verificationUriComplete, expiresInSeconds };
+}
+async function pollDeviceFlowOnce(flow) {
+  const now = Date.now();
+  if (now >= flow.expiresAt) {
+    inFlightDeviceFlow = void 0;
+    throw new ProxyAuthError("Device flow polling failed: the code expired \u2014 call gramatr_authenticate again to start over");
   }
-  if (PLUGIN_DATA_DIR) {
-    (0, import_node_fs6.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
-    (0, import_node_fs6.writeFileSync)((0, import_node_path6.join)(PLUGIN_DATA_DIR, "token.json"), JSON.stringify({ token: accessToken }, null, 2) + "\n", "utf8");
+  if (now < flow.nextPollAllowedAt) {
+    return {
+      status: "pending",
+      userCode: flow.userCode,
+      verificationUriComplete: flow.verificationUriComplete,
+      expiresInSeconds: Math.max(0, Math.round((flow.expiresAt - now) / 1e3))
+    };
   }
-  process.stderr.write("gr\u0101matr: Authenticated successfully.\n");
-  return accessToken;
+  const pollRes = await fetch(`${REMOTE_BASE}/device/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device_code: flow.deviceCode }),
+    signal: AbortSignal.timeout(1e4)
+  });
+  flow.nextPollAllowedAt = Date.now() + flow.intervalSeconds * 1e3;
+  let pollPayload = {};
+  try {
+    pollPayload = await pollRes.json();
+  } catch {
+  }
+  if (pollRes.ok && typeof pollPayload.access_token === "string") {
+    const accessToken = pollPayload.access_token;
+    if (PLUGIN_DATA_DIR) {
+      (0, import_node_fs6.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
+      (0, import_node_fs6.writeFileSync)((0, import_node_path6.join)(PLUGIN_DATA_DIR, "token.json"), JSON.stringify({ token: accessToken }, null, 2) + "\n", "utf8");
+    }
+    inFlightDeviceFlow = void 0;
+    process.stderr.write("gr\u0101matr: Authenticated successfully.\n");
+    return { status: "approved", accessToken };
+  }
+  if (pollRes.status === 428 || pollPayload.error === "authorization_pending") {
+    return {
+      status: "pending",
+      userCode: flow.userCode,
+      verificationUriComplete: flow.verificationUriComplete,
+      expiresInSeconds: Math.max(0, Math.round((flow.expiresAt - Date.now()) / 1e3))
+    };
+  }
+  inFlightDeviceFlow = void 0;
+  const errMsg = pollPayload.error_description ?? pollPayload.error ?? `HTTP ${pollRes.status}`;
+  throw new ProxyAuthError(`Device flow polling failed: ${errMsg}`);
+}
+function __resetDeviceFlowStateForTests() {
+  inFlightDeviceFlow = void 0;
 }
 function extractDeadStateSignal(response, httpStatus) {
   let oauthError = null;
@@ -839,7 +874,7 @@ function emitListChangedNotifications() {
 }
 var SYNTHETIC_AUTH_TOOL = {
   name: "gramatr_authenticate",
-  description: "Authenticate the gr\u0101matr local proxy via device flow. Call this once if gr\u0101matr tools are returning auth errors.",
+  description: "Authenticate the gr\u0101matr local proxy via device flow. Call this if gr\u0101matr tools are returning auth errors. The first call returns a code and URL to open in a browser \u2014 relay both to the user. Call this tool again (as many times as needed) after they visit the URL to check whether authorization completed.",
   inputSchema: { type: "object", properties: {}, required: [] }
 };
 function writeSessionFile(responseText, projectDir) {
@@ -1011,14 +1046,33 @@ async function handleMessage(msg) {
     const params = msg.params;
     if (params.name === "gramatr_authenticate") {
       try {
-        await runDeviceFlow();
-        emitListChangedNotifications();
-        lastToolsListWas401 = false;
+        const result = inFlightDeviceFlow ? await pollDeviceFlowOnce(inFlightDeviceFlow) : await startDeviceFlow();
+        if (result.status === "approved") {
+          emitListChangedNotifications();
+          lastToolsListWas401 = false;
+          return {
+            jsonrpc: "2.0",
+            id: msgId,
+            result: {
+              content: [{ type: "text", text: "Authenticated successfully. gr\u0101matr proxy is now connected." }]
+            }
+          };
+        }
+        const whereText = result.verificationUriComplete ? `Open ${result.verificationUriComplete}` : `Visit https://app.gramatr.com/device and enter code ${result.userCode}`;
         return {
           jsonrpc: "2.0",
           id: msgId,
           result: {
-            content: [{ type: "text", text: "Authenticated successfully. gr\u0101matr proxy is now connected." }]
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                status: "pending",
+                message: `${whereText} to authorize (code: ${result.userCode}), then call gramatr_authenticate again to complete.`,
+                user_code: result.userCode,
+                verification_uri_complete: result.verificationUriComplete,
+                expires_in_seconds: result.expiresInSeconds
+              })
+            }]
           }
         };
       } catch (err) {
@@ -1249,5 +1303,6 @@ if (!process.env.GRAMATR_PROXY_NO_AUTOSTART) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  __resetDeviceFlowStateForTests,
   handleMessage
 });
