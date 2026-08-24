@@ -1106,7 +1106,24 @@ init_hook_promotion_telemetry();
 // dist/hooks/lib/version.js
 var import_fs2 = require("fs");
 var import_path2 = require("path");
-var import_url = require("url");
+
+// dist/hooks/lib/resolve-running-script-dir.js
+var import_node_path8 = require("node:path");
+var import_node_url = require("node:url");
+function resolveRunningScriptDir(argv1, importMetaUrl) {
+  if (argv1)
+    return (0, import_node_path8.dirname)(argv1);
+  if (importMetaUrl) {
+    try {
+      return (0, import_node_path8.dirname)((0, import_node_url.fileURLToPath)(importMetaUrl));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// dist/hooks/lib/version.js
 var import_meta = {};
 function findPackageJson(startDir) {
   let dir = startDir;
@@ -1126,7 +1143,9 @@ function resolveVersion() {
     if (typeof __GRAMATR_VERSION__ === "string" && __GRAMATR_VERSION__.length > 0) {
       return __GRAMATR_VERSION__;
     }
-    const here = (0, import_path2.dirname)((0, import_url.fileURLToPath)(import_meta.url));
+    const here = resolveRunningScriptDir(process.argv[1], import_meta.url);
+    if (!here)
+      return "0.0.0";
     const pkgPath = findPackageJson(here);
     if (!pkgPath)
       return "0.0.0";
@@ -1140,20 +1159,20 @@ var VERSION = resolveVersion();
 
 // dist/hooks/lib/session-root-registry.js
 var import_node_fs9 = require("node:fs");
-var import_node_path9 = require("node:path");
+var import_node_path10 = require("node:path");
 init_config_runtime();
 
 // dist/hooks/lib/project-state.js
 var import_node_child_process = require("node:child_process");
 var import_node_fs8 = require("node:fs");
-var import_node_path8 = require("node:path");
+var import_node_path9 = require("node:path");
 var GRAMATR_DIR3 = ".gramatr";
 function findProjectRoot(startDir = process.cwd()) {
   let dir = startDir;
   for (; ; ) {
-    if ((0, import_node_fs8.existsSync)((0, import_node_path8.join)(dir, GRAMATR_DIR3)))
+    if ((0, import_node_fs8.existsSync)((0, import_node_path9.join)(dir, GRAMATR_DIR3)))
       return dir;
-    const parent = (0, import_node_path8.dirname)(dir);
+    const parent = (0, import_node_path9.dirname)(dir);
     if (parent === dir)
       return startDir;
     dir = parent;
@@ -1175,13 +1194,13 @@ function canonicalizeProjectRoot(dir) {
   const commonDir = git(["rev-parse", "--git-common-dir"]);
   if (!gitDir || !commonDir)
     return dir;
-  const abs = (p2) => p2.startsWith("/") ? p2 : (0, import_node_path8.join)(dir, p2);
+  const abs = (p2) => p2.startsWith("/") ? p2 : (0, import_node_path9.join)(dir, p2);
   const absGitDir = abs(gitDir);
   const absCommonDir = abs(commonDir);
   if (absGitDir === absCommonDir)
     return dir;
-  const mainRoot = (0, import_node_path8.dirname)(absCommonDir);
-  if ((0, import_node_fs8.existsSync)((0, import_node_path8.join)(mainRoot, GRAMATR_DIR3)))
+  const mainRoot = (0, import_node_path9.dirname)(absCommonDir);
+  if ((0, import_node_fs8.existsSync)((0, import_node_path9.join)(mainRoot, GRAMATR_DIR3)))
     return mainRoot;
   return dir;
 }
@@ -1215,10 +1234,10 @@ function resolveProjectDir(opts = {}) {
 var CORE_FILE = "project.json";
 var RUNTIME_FILE = "runtime.json";
 function getStatePaths(projectDir) {
-  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR3);
+  const dir = (0, import_node_path9.join)(projectDir, GRAMATR_DIR3);
   return {
-    core: (0, import_node_path8.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path8.join)(dir, RUNTIME_FILE)
+    core: (0, import_node_path9.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path9.join)(dir, RUNTIME_FILE)
   };
 }
 function atomicWriteJson(filePath, dir, payload) {
@@ -1247,7 +1266,7 @@ function readRuntime(projectDir) {
 }
 function patchRuntime(projectDir, patch) {
   const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR3);
+  const dir = (0, import_node_path9.join)(projectDir, GRAMATR_DIR3);
   const prev = readRuntime(projectDir);
   const next = { ...prev, ...patch };
   if (JSON.stringify(prev) === JSON.stringify(next)) {
@@ -1266,7 +1285,7 @@ function registryTtlMs() {
   return days * 24 * 60 * 60 * 1e3;
 }
 function registryDir() {
-  return (0, import_node_path9.join)(getHomeDir(), ".gramatr", "sessions");
+  return (0, import_node_path10.join)(getHomeDir(), ".gramatr", "sessions");
 }
 function sessionFileName(sessionId) {
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
@@ -1278,7 +1297,7 @@ function sessionRootPath(sessionId) {
   const name = sessionFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path9.join)(registryDir(), name);
+  return (0, import_node_path10.join)(registryDir(), name);
 }
 function readRaw(path) {
   try {
@@ -1319,7 +1338,7 @@ function readSessionRoot(sessionId) {
 }
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path9.join)(home, ".gramatr", "debug");
+  return (0, import_node_path10.join)(home, ".gramatr", "debug");
 }
 function recordRegistryResolution(resolution, sessionId, clientType) {
   if (resolution === "hit")
@@ -1334,7 +1353,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
     const dir = registryDebugDir();
     if (!(0, import_node_fs9.existsSync)(dir))
       (0, import_node_fs9.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path9.join)(dir, "registry-resolution.jsonl");
+    const jsonlPath = (0, import_node_path10.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
     if ((0, import_node_fs9.existsSync)(jsonlPath)) {

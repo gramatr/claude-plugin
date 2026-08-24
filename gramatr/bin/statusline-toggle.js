@@ -3,12 +3,29 @@
 
 // dist/bin/statusline-toggle-lib.js
 var import_node_fs = require("node:fs");
+var import_node_path2 = require("node:path");
+var import_node_os = require("node:os");
+
+// dist/hooks/lib/resolve-running-script-dir.js
 var import_node_path = require("node:path");
 var import_node_url = require("node:url");
-var import_node_os = require("node:os");
+function resolveRunningScriptDir(argv1, importMetaUrl) {
+  if (argv1)
+    return (0, import_node_path.dirname)(argv1);
+  if (importMetaUrl) {
+    try {
+      return (0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(importMetaUrl));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// dist/bin/statusline-toggle-lib.js
 var import_meta = {};
 function settingsPath(homeDir = (0, import_node_os.homedir)()) {
-  return (0, import_node_path.join)(homeDir, ".claude", "settings.json");
+  return (0, import_node_path2.join)(homeDir, ".claude", "settings.json");
 }
 function readSettings(homeDir = (0, import_node_os.homedir)()) {
   const p = settingsPath(homeDir);
@@ -23,7 +40,7 @@ function readSettings(homeDir = (0, import_node_os.homedir)()) {
 }
 function writeSettings(settings, homeDir = (0, import_node_os.homedir)()) {
   const p = settingsPath(homeDir);
-  (0, import_node_fs.mkdirSync)((0, import_node_path.dirname)(p), { recursive: true });
+  (0, import_node_fs.mkdirSync)((0, import_node_path2.dirname)(p), { recursive: true });
   (0, import_node_fs.writeFileSync)(p, JSON.stringify(settings, null, 2) + "\n");
 }
 function check(homeDir = (0, import_node_os.homedir)()) {
@@ -38,16 +55,18 @@ function check(homeDir = (0, import_node_os.homedir)()) {
     console.log("STATUS: no statusLine currently set.");
   }
 }
-function resolveStatuslineScriptPath() {
+function resolveStatuslineScriptPath(argv1 = process.argv[1]) {
+  const here = resolveRunningScriptDir(argv1, import_meta.url);
+  if (here)
+    return (0, import_node_path2.join)(here, "statusline.js");
   const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
   if (pluginRoot)
-    return (0, import_node_path.join)(pluginRoot, "bin", "statusline.js");
-  const here = (0, import_node_path.dirname)((0, import_node_url.fileURLToPath)(import_meta.url));
-  return (0, import_node_path.join)(here, "statusline.js");
+    return (0, import_node_path2.join)(pluginRoot, "bin", "statusline.js");
+  return "statusline.js";
 }
-function enable(homeDir = (0, import_node_os.homedir)()) {
+function enable(homeDir = (0, import_node_os.homedir)(), argv1 = process.argv[1]) {
   const s = readSettings(homeDir);
-  const scriptPath = resolveStatuslineScriptPath();
+  const scriptPath = resolveStatuslineScriptPath(argv1);
   s.statusLine = {
     type: "command",
     // Claude Code's statusLine config runs `command` as ONE shell string and
