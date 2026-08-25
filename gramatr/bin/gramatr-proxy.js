@@ -22,7 +22,9 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var plugin_proxy_exports = {};
 __export(plugin_proxy_exports, {
   __resetDeviceFlowStateForTests: () => __resetDeviceFlowStateForTests,
-  handleMessage: () => handleMessage
+  handleMessage: () => handleMessage,
+  onTokenFileChanged: () => onTokenFileChanged,
+  startTokenFileWatch: () => startTokenFileWatch
 });
 module.exports = __toCommonJS(plugin_proxy_exports);
 var import_node_readline = require("node:readline");
@@ -665,8 +667,8 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.34.7") {
-      return "0.34.7";
+    if ("0.34.9") {
+      return "0.34.9";
     }
   } catch {
   }
@@ -870,6 +872,38 @@ function emitListChangedNotifications() {
   ];
   for (const method of methods) {
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method }) + "\n");
+  }
+}
+var tokenFileWatcher;
+var tokenWatchDebounceTimer;
+function onTokenFileChanged() {
+  if (!lastToolsListWas401)
+    return;
+  if (!getToken())
+    return;
+  lastToolsListWas401 = false;
+  process.stderr.write("gr\u0101matr-proxy: token.json changed \u2014 notifying client of restored auth\n");
+  emitListChangedNotifications();
+}
+function startTokenFileWatch() {
+  if (!PLUGIN_DATA_DIR)
+    return;
+  try {
+    (0, import_node_fs6.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
+    tokenFileWatcher = (0, import_node_fs6.watch)(PLUGIN_DATA_DIR, (_eventType, filename) => {
+      if (filename !== null && filename !== "token.json")
+        return;
+      if (tokenWatchDebounceTimer)
+        clearTimeout(tokenWatchDebounceTimer);
+      tokenWatchDebounceTimer = setTimeout(onTokenFileChanged, 150);
+    });
+    tokenFileWatcher.on("error", (err) => {
+      process.stderr.write(`gr\u0101matr-proxy: token file watch error \u2014 ${String(err)}
+`);
+    });
+  } catch (err) {
+    process.stderr.write(`gr\u0101matr-proxy: failed to start token file watch \u2014 ${String(err)}
+`);
   }
 }
 var SYNTHETIC_AUTH_TOOL = {
@@ -1265,6 +1299,7 @@ async function main() {
   const rl = (0, import_node_readline.createInterface)({ input: process.stdin, terminal: false });
   process.stderr.write(`gr\u0101matr-proxy: starting \u2014 token ${getToken() ? "found" : "not found (call gramatr_authenticate)"}
 `);
+  startTokenFileWatch();
   rl.on("line", (line) => {
     const trimmed = line.trim();
     if (!trimmed)
@@ -1290,6 +1325,7 @@ async function main() {
     });
   });
   rl.on("close", () => {
+    tokenFileWatcher?.close();
     process.exit(0);
   });
 }
@@ -1304,5 +1340,7 @@ if (!process.env.GRAMATR_PROXY_NO_AUTOSTART) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   __resetDeviceFlowStateForTests,
-  handleMessage
+  handleMessage,
+  onTokenFileChanged,
+  startTokenFileWatch
 });

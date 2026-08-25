@@ -21,7 +21,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // dist/bin/statusline-selfheal.js
 var statusline_selfheal_exports = {};
 __export(statusline_selfheal_exports, {
-  main: () => main
+  main: () => main,
+  shouldAutoStart: () => shouldAutoStart
 });
 module.exports = __toCommonJS(statusline_selfheal_exports);
 var import_node_os2 = require("node:os");
@@ -113,10 +114,14 @@ function main(homeDir = (0, import_node_os2.homedir)(), argv1 = process.argv[1])
     warn(`unexpected_error: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
-if (process.env.GRAMATR_STATUSLINE_SELFHEAL_NO_AUTOSTART !== "1") {
+function shouldAutoStart(env = process.env) {
+  return env.GRAMATR_STATUSLINE_SELFHEAL_NO_AUTOSTART !== "1" && !env.VITEST;
+}
+if (shouldAutoStart()) {
   main();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  main
+  main,
+  shouldAutoStart
 });
