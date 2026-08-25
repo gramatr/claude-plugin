@@ -1,5 +1,5 @@
 ---
-description: Authenticate with grāmatr via device flow — starts the flow, confirms the code back with you, then completes it.
+description: Authenticate with grāmatr via device flow — starts the flow, shows the code, then completes it.
 allowed-tools: mcp__plugin_gramatr_gramatr__gramatr_authenticate
 ---
 
@@ -12,9 +12,13 @@ The underlying `gramatr_authenticate` MCP tool is bounded to one network
 round-trip per call (#5189 — it used to block silently for up to 15 minutes;
 never let it regress to that): the first call starts the flow and returns a
 code + URL immediately; each subsequent call polls once and reports
-pending/approved/failed. This command adds one thing on top of the raw tool:
-a hard-gate confirmation step, so a misread or mis-pasted code gets caught
-before you ever open the browser.
+pending/approved/failed.
+
+Note on the browser side (confirmed live, #5197): the `app.gramatr.com/device`
+page has NO separate value to paste back — it authorizes and says "Device
+authorized. Return to your terminal; grāmatr will finish sign-in
+automatically." There is nothing to relay from the browser back into this
+command; completion is pure polling.
 
 ## Step 1 — Start the flow
 
@@ -28,34 +32,21 @@ If `status` is already `"approved"` (a token was already valid — the call
 returned success immediately with no pending state), tell the user they're
 already authenticated and stop here.
 
-## Step 2 — Show the code, then confirm it back (hard gate)
+## Step 2 — Show the code, send them to authorize, then poll
 
 Present clearly to the user:
 
 - The verification URL (`verification_uri_complete`) as a clickable link
 - The code (`user_code`) in a prominent, unmistakable format
 
-Then explicitly ask the user to **type the code back to you** before you do
-anything else — do not tell them to go open the browser yet. This is not a
-security boundary (you already generated what's on screen); it's a guard
-against relaying or the user reading the wrong code.
-
-Compare what they type against `user_code`, normalizing case and
-surrounding whitespace but nothing else (the code's internal `-XXXX-XXXX-`
-grouping must still match exactly).
-
-- **Match** → proceed to Step 3.
-- **Mismatch** → tell them plainly it doesn't match, show the correct code
-  again, and ask them to retype it. Do not proceed to Step 3 on a mismatch,
-  no matter how close. Allow up to 3 attempts; if all 3 fail, tell the user
-  to run `/gramatr:authenticate` again and stop — never fall through to
-  polling on an unconfirmed code.
-
-## Step 3 — Send them to authorize, then poll
-
-Now tell the user to open the verification URL (or visit
-`app.gramatr.com/device` and enter the code) and authorize there. Ask them
-to let you know once they've done that.
+Tell them to open the link (or visit `app.gramatr.com/device` and enter the
+code) and authorize there, then let you know once they've done that. Do not
+ask them to retype the code back — #5193 tried a pre-browser type-back
+confirmation step here and it was real friction for no real benefit: the
+command already generated what's on screen, so retyping it doesn't add a
+security boundary, and the browser page (per the note above) has nothing to
+relay back either. Removed in #5197 — do not reintroduce without a
+concrete, user-requested reason.
 
 When they confirm, call `mcp__plugin_gramatr_gramatr__gramatr_authenticate`
 again (no arguments — the running proxy remembers the in-flight device code

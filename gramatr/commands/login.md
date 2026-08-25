@@ -1,5 +1,5 @@
 ---
-description: Alias for /gramatr:authenticate — device-flow login with a type-back confirmation step.
+description: Alias for /gramatr:authenticate — device-flow login.
 allowed-tools: Skill
 ---
 
