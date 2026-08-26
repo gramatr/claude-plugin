@@ -662,8 +662,8 @@ var init_tool_envelope = __esm({
 });
 
 // dist/bin/init-identity.js
-var import_node_fs10 = require("node:fs");
-var import_node_path10 = require("node:path");
+var import_node_fs11 = require("node:fs");
+var import_node_path11 = require("node:path");
 
 // dist/user-config.js
 var import_node_fs = require("node:fs");
@@ -1394,6 +1394,26 @@ async function defaultResolveProject(args) {
 // dist/hooks/lib/session-rest-token.js
 var import_node_fs7 = require("node:fs");
 var import_node_path7 = require("node:path");
+
+// ../proof-crypto/dist/index.js
+var import_node_crypto = require("node:crypto");
+function generateEd25519KeyPair() {
+  const { privateKey, publicKey } = (0, import_node_crypto.generateKeyPairSync)("ed25519");
+  return { privateKey, publicKey };
+}
+function toPublicJwk(publicKey) {
+  const jwk = publicKey.export({ format: "jwk" });
+  if (!jwk.x) {
+    throw new Error('proof-crypto: public key JWK export missing required "x" member');
+  }
+  return { kty: "OKP", crv: "Ed25519", x: jwk.x };
+}
+function jwkThumbprint(jwk) {
+  const canonical = `{"crv":"${jwk.crv}","kty":"${jwk.kty}","x":"${jwk.x}"}`;
+  return (0, import_node_crypto.createHash)("sha256").update(canonical).digest("base64url");
+}
+
+// dist/hooks/lib/session-rest-token.js
 var GRAMATR_DIR2 = ".gramatr";
 var SESSION_FILE = ".session";
 var SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
@@ -1403,13 +1423,15 @@ function getSessionTokenPath(projectDir) {
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
     return null;
-  const { token, expires_at, base_url, aud, issued_at, written_at } = block;
+  const { token, expires_at, base_url, aud, issued_at, written_at, session_id } = block;
   if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
     const file = { token, expires_at, base_url, aud };
     if (typeof issued_at === "string" && issued_at.length > 0)
       file.issued_at = issued_at;
     if (typeof written_at === "string" && written_at.length > 0)
       file.written_at = written_at;
+    if (typeof session_id === "string" && session_id.length > 0)
+      file.session_id = session_id;
     return file;
   }
   return null;
@@ -1585,6 +1607,224 @@ function writeMintCredential(record) {
   return fileWrite(payload) ? "file" : "none";
 }
 
+// dist/hooks/lib/device-key-store.js
+var import_node_child_process5 = require("node:child_process");
+var import_node_fs10 = require("node:fs");
+var import_node_path10 = require("node:path");
+var import_node_crypto2 = require("node:crypto");
+init_config_runtime();
+
+// dist/hooks/lib/device-key.js
+function generateDeviceKeyPair() {
+  const { privateKey, publicKey } = generateEd25519KeyPair();
+  const publicJwk = toPublicJwk(publicKey);
+  const thumbprint = jwkThumbprint(publicJwk);
+  return { privateKey, publicKey, publicJwk, thumbprint };
+}
+
+// dist/hooks/lib/device-key-store.js
+var spawnImpl2 = import_node_child_process5.spawnSync;
+var platformImpl2 = null;
+function currentPlatform2() {
+  return platformImpl2 ?? process.platform;
+}
+var KEYRING_SERVICE2 = "gramatr-device-key";
+var KEYRING_ACCOUNT2 = "gramatr";
+var FILE_BACKEND_NAME2 = ".device-key";
+var KEYRING_CMD_TIMEOUT_MS2 = 3e3;
+function toBackendKind(backend) {
+  return backend === "macos" || backend === "secret-tool" || backend === "windows" ? "keychain" : "file";
+}
+function runKeyringCmd2(cmd, args, input) {
+  try {
+    const res = spawnImpl2(cmd, args, {
+      timeout: KEYRING_CMD_TIMEOUT_MS2,
+      encoding: "utf8",
+      input,
+      // Never inherit stdio — keep secret bytes off the terminal.
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (!res || res.error || res.status !== 0)
+      return null;
+    return { stdout: res.stdout ?? "" };
+  } catch {
+    return null;
+  }
+}
+function macosWrite2(secret) {
+  const res = runKeyringCmd2("security", [
+    "add-generic-password",
+    "-a",
+    KEYRING_ACCOUNT2,
+    "-s",
+    KEYRING_SERVICE2,
+    "-U",
+    "-w",
+    secret
+  ]);
+  return res !== null;
+}
+function macosRead() {
+  const res = runKeyringCmd2("security", [
+    "find-generic-password",
+    "-a",
+    KEYRING_ACCOUNT2,
+    "-s",
+    KEYRING_SERVICE2,
+    "-w"
+  ]);
+  if (!res)
+    return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function secretToolWrite2(secret) {
+  const res = runKeyringCmd2("secret-tool", ["store", "--label", KEYRING_SERVICE2, "service", KEYRING_SERVICE2, "account", KEYRING_ACCOUNT2], secret);
+  return res !== null;
+}
+function secretToolRead() {
+  const res = runKeyringCmd2("secret-tool", [
+    "lookup",
+    "service",
+    KEYRING_SERVICE2,
+    "account",
+    KEYRING_ACCOUNT2
+  ]);
+  if (!res)
+    return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function windowsWrite2(secret) {
+  const target = `${KEYRING_SERVICE2}:${KEYRING_ACCOUNT2}`;
+  const res = runKeyringCmd2("cmdkey", [
+    `/generic:${target}`,
+    `/user:${KEYRING_ACCOUNT2}`,
+    `/pass:${secret}`
+  ]);
+  return res !== null;
+}
+function windowsRead() {
+  const target = `${KEYRING_SERVICE2}:${KEYRING_ACCOUNT2}`;
+  const script = `$ErrorActionPreference='SilentlyContinue';[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime];try{$v=New-Object Windows.Security.Credentials.PasswordVault;$c=$v.Retrieve('${target}','${KEYRING_ACCOUNT2}');$c.RetrievePassword();$c.Password}catch{''}`;
+  const res = runKeyringCmd2("powershell", ["-NoProfile", "-Command", script]);
+  if (!res)
+    return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function fileWrite2(record) {
+  try {
+    const dir = (0, import_node_path10.join)(getHomeDir(), ".gramatr");
+    if (!(0, import_node_fs10.existsSync)(dir))
+      (0, import_node_fs10.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dest = getFileBackendPath2();
+    const tmp = `${dest}.tmp.${process.pid}`;
+    (0, import_node_fs10.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs10.renameSync)(tmp, dest);
+    try {
+      (0, import_node_fs10.chmodSync)(dest, 384);
+    } catch {
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function fileRead() {
+  try {
+    const dest = getFileBackendPath2();
+    if (!(0, import_node_fs10.existsSync)(dest))
+      return null;
+    const raw = (0, import_node_fs10.readFileSync)(dest, "utf8").trim();
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+function getFileBackendPath2() {
+  return (0, import_node_path10.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME2);
+}
+function fileBackendForced2() {
+  return isKeyringFileOnlyFromEnv();
+}
+function nativeBackend2() {
+  if (fileBackendForced2())
+    return "file";
+  switch (currentPlatform2()) {
+    case "darwin":
+      return "macos";
+    case "win32":
+      return "windows";
+    case "linux":
+      return "secret-tool";
+    default:
+      return "file";
+  }
+}
+function reconstructDeviceKeyPair(privateJwk) {
+  const privateKey = (0, import_node_crypto2.createPrivateKey)({ key: privateJwk, format: "jwk" });
+  const publicKey = (0, import_node_crypto2.createPublicKey)(privateKey);
+  const publicJwk = toPublicJwk(publicKey);
+  const thumbprint = jwkThumbprint(publicJwk);
+  return { privateKey, publicKey, publicJwk, thumbprint };
+}
+function writeDeviceKey(keyPair) {
+  const privateJwk = keyPair.privateKey.export({ format: "jwk" });
+  const payload = JSON.stringify({ privateJwk });
+  const backend = nativeBackend2();
+  if (backend === "macos" && macosWrite2(payload))
+    return "macos";
+  if (backend === "secret-tool" && secretToolWrite2(payload))
+    return "secret-tool";
+  if (backend === "windows" && windowsWrite2(payload))
+    return "windows";
+  return fileWrite2(payload) ? "file" : "none";
+}
+function readDeviceKey() {
+  const backend = nativeBackend2();
+  let raw = null;
+  let servedBy = "none";
+  if (backend === "macos") {
+    raw = macosRead();
+    if (raw)
+      servedBy = "macos";
+  } else if (backend === "secret-tool") {
+    raw = secretToolRead();
+    if (raw)
+      servedBy = "secret-tool";
+  } else if (backend === "windows") {
+    raw = windowsRead();
+    if (raw)
+      servedBy = "windows";
+  }
+  if (!raw) {
+    raw = fileRead();
+    if (raw)
+      servedBy = "file";
+  }
+  if (!raw)
+    return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const jwk = parsed.privateJwk;
+    if (!jwk || jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string" || jwk.x.length === 0 || typeof jwk.d !== "string" || jwk.d.length === 0) {
+      return null;
+    }
+    return { keyPair: reconstructDeviceKeyPair(jwk), backend: toBackendKind(servedBy) };
+  } catch {
+    return null;
+  }
+}
+function getOrCreateDeviceKeyPair() {
+  const existing = readDeviceKey();
+  if (existing)
+    return existing;
+  const keyPair = generateDeviceKeyPair();
+  const backend = writeDeviceKey(keyPair);
+  return { keyPair, backend: toBackendKind(backend) };
+}
+
 // dist/bin/init-identity.js
 init_config_runtime();
 var REMOTE_URL = process.env.GRAMATR_URL ?? "https://api.gramatr.com/mcp";
@@ -1608,15 +1848,15 @@ function getToken2() {
     return envToken;
   if (PLUGIN_DATA_DIR) {
     try {
-      const cfg = JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path10.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs11.readFileSync)((0, import_node_path11.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
     }
   }
   try {
-    const credFile = (0, import_node_path10.resolve)(HOME_DIR, ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path11.resolve)(HOME_DIR, ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs11.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -1766,20 +2006,20 @@ function writeSessionJson(payload, clientSessionId, model) {
     written_at: (/* @__PURE__ */ new Date()).toISOString(),
     ...model ? { model } : {}
   };
-  const dir = (0, import_node_path10.join)(PROJECT_DIR, ".gramatr");
-  const target = (0, import_node_path10.join)(dir, "session.json");
+  const dir = (0, import_node_path11.join)(PROJECT_DIR, ".gramatr");
+  const target = (0, import_node_path11.join)(dir, "session.json");
   let sessionJsonUnchanged = false;
   try {
-    const prev = JSON.parse((0, import_node_fs10.readFileSync)(target, "utf8"));
+    const prev = JSON.parse((0, import_node_fs11.readFileSync)(target, "utf8"));
     sessionJsonUnchanged = prev.session_id === next.session_id && prev.project_id === next.project_id && prev.client_session_id === next.client_session_id && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "");
   } catch {
   }
   if (!sessionJsonUnchanged) {
     try {
-      (0, import_node_fs10.mkdirSync)(dir, { recursive: true });
-      const tmp = (0, import_node_path10.join)(dir, `session.json.tmp.${process.pid}`);
-      (0, import_node_fs10.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
-      (0, import_node_fs10.renameSync)(tmp, target);
+      (0, import_node_fs11.mkdirSync)(dir, { recursive: true });
+      const tmp = (0, import_node_path11.join)(dir, `session.json.tmp.${process.pid}`);
+      (0, import_node_fs11.writeFileSync)(tmp, JSON.stringify(next, null, 2) + "\n", "utf8");
+      (0, import_node_fs11.renameSync)(tmp, target);
     } catch {
     }
   }
@@ -1855,7 +2095,7 @@ async function main() {
     writeSessionRoot(clientSessionId, { project_root: PROJECT_DIR, client_type: "claude-code" });
   }
   try {
-    (0, import_node_fs10.unlinkSync)((0, import_node_path10.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json"));
+    (0, import_node_fs11.unlinkSync)((0, import_node_path11.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json"));
   } catch {
   }
   const cached = readCachedUserIdentity();
@@ -1918,6 +2158,10 @@ async function main() {
       writeMintCredential(payload.mint_credential);
     } catch {
     }
+  }
+  try {
+    getOrCreateDeviceKeyPair();
+  } catch {
   }
   const user = payload.user;
   if (!user || !(user.id || user.email)) {

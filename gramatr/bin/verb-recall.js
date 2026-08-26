@@ -99,19 +99,16 @@ function resolveProjectDir(opts = {}) {
 var import_node_fs2 = require("node:fs");
 var import_node_path2 = require("node:path");
 
-// dist/hooks/lib/dpop-key.js
+// ../proof-crypto/dist/index.js
 var import_node_crypto = require("node:crypto");
-var DPOP_JWT_TYP = "dpop+jwt";
-function generateDpopKeyPair() {
+function generateEd25519KeyPair() {
   const { privateKey, publicKey } = (0, import_node_crypto.generateKeyPairSync)("ed25519");
-  const publicJwk = toPublicJwk(publicKey);
-  const thumbprint = jwkThumbprint(publicJwk);
-  return { privateKey, publicKey, publicJwk, thumbprint };
+  return { privateKey, publicKey };
 }
 function toPublicJwk(publicKey) {
   const jwk = publicKey.export({ format: "jwk" });
   if (!jwk.x) {
-    throw new Error('DPoP: public key JWK export missing required "x" member');
+    throw new Error('proof-crypto: public key JWK export missing required "x" member');
   }
   return { kty: "OKP", crv: "Ed25519", x: jwk.x };
 }
@@ -121,6 +118,22 @@ function jwkThumbprint(jwk) {
 }
 function b64url(input) {
   return Buffer.from(input).toString("base64url");
+}
+function buildCompactEnvelope(privateKey, publicJwk, typ, payload) {
+  const header = { typ, alg: "EdDSA", jwk: publicJwk };
+  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  const signature = (0, import_node_crypto.sign)(null, Buffer.from(signingInput, "ascii"), privateKey);
+  return `${signingInput}.${b64url(signature)}`;
+}
+
+// dist/hooks/lib/dpop-key.js
+var import_node_crypto2 = require("node:crypto");
+var DPOP_JWT_TYP = "dpop+jwt";
+function generateDpopKeyPair() {
+  const { privateKey, publicKey } = generateEd25519KeyPair();
+  const publicJwk = toPublicJwk(publicKey);
+  const thumbprint = jwkThumbprint(publicJwk);
+  return { privateKey, publicKey, publicJwk, thumbprint };
 }
 function normalizeHtu(uri) {
   try {
@@ -133,20 +146,12 @@ function normalizeHtu(uri) {
   }
 }
 function buildDpopProof(keyPair, params) {
-  const header = {
-    typ: DPOP_JWT_TYP,
-    alg: "EdDSA",
-    jwk: keyPair.publicJwk
-  };
-  const payload = {
+  return buildCompactEnvelope(keyPair.privateKey, keyPair.publicJwk, DPOP_JWT_TYP, {
     htm: params.htm.toUpperCase(),
     htu: normalizeHtu(params.htu),
     iat: params.iat ?? Math.floor(Date.now() / 1e3),
-    jti: params.jti ?? b64url((0, import_node_crypto.randomBytes)(16))
-  };
-  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-  const signature = (0, import_node_crypto.sign)(null, Buffer.from(signingInput, "ascii"), keyPair.privateKey);
-  return `${signingInput}.${b64url(signature)}`;
+    jti: params.jti ?? b64url((0, import_node_crypto2.randomBytes)(16))
+  });
 }
 function attachDpopProof(keyPair, method, url) {
   if (!keyPair)
@@ -177,13 +182,15 @@ function getSessionTokenPath(projectDir) {
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
     return null;
-  const { token, expires_at, base_url, aud, issued_at, written_at } = block;
+  const { token, expires_at, base_url, aud, issued_at, written_at, session_id } = block;
   if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
     const file = { token, expires_at, base_url, aud };
     if (typeof issued_at === "string" && issued_at.length > 0)
       file.issued_at = issued_at;
     if (typeof written_at === "string" && written_at.length > 0)
       file.written_at = written_at;
+    if (typeof session_id === "string" && session_id.length > 0)
+      file.session_id = session_id;
     return file;
   }
   return null;
@@ -251,6 +258,11 @@ function bearerHeader(file) {
     return {};
   return { Authorization: `Bearer ${file.token}` };
 }
+function sessionHeader(file) {
+  if (!file || !file.session_id)
+    return {};
+  return { "X-Gramatr-Session": file.session_id };
+}
 function apiV1Base(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return `${trimmed}/api/v1`;
@@ -259,7 +271,7 @@ function dpopHeader(method, url, keyPair = getProcessDpopKeyPair()) {
   return attachDpopProof(keyPair, method, url);
 }
 function sessionAuthHeaders(file, method, url, keyPair = getProcessDpopKeyPair()) {
-  return { ...bearerHeader(file), ...dpopHeader(method, url, keyPair) };
+  return { ...bearerHeader(file), ...sessionHeader(file), ...dpopHeader(method, url, keyPair) };
 }
 async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
   const url = `${apiV1Base(file.base_url)}/session/token/renew`;
@@ -269,7 +281,12 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${file.token}`
+        Authorization: `Bearer ${file.token}`,
+        // The presenting (soon-to-expire) token already carries a resolvable
+        // session_id server-side, so the renew call is NOT exempt from the
+        // binding header (#5258 Unit 3 / #3538, scope doc Open Question 2) —
+        // `sessionHeader` degrades to `{}` on an old file with no `session_id`.
+        ...sessionHeader(file)
       },
       signal: AbortSignal.timeout(RENEW_TIMEOUT_MS)
     });
@@ -298,7 +315,10 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
     // when absent, writeSessionToken stamps a fresh written_at fallback.
     issued_at: body.issued_at,
     base_url: file.base_url,
-    aud: file.aud
+    aud: file.aud,
+    // session_id (#5258 Unit 2 / #3538): the renew response may not re-send it,
+    // so preserve it from the presenting file — same treatment as aud/base_url.
+    session_id: file.session_id
   });
   if (!fresh) {
     return { status: "error" };

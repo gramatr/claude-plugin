@@ -43,13 +43,15 @@ function getSessionTokenPath(projectDir) {
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
     return null;
-  const { token, expires_at, base_url, aud, issued_at, written_at } = block;
+  const { token, expires_at, base_url, aud, issued_at, written_at, session_id } = block;
   if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
     const file = { token, expires_at, base_url, aud };
     if (typeof issued_at === "string" && issued_at.length > 0)
       file.issued_at = issued_at;
     if (typeof written_at === "string" && written_at.length > 0)
       file.written_at = written_at;
+    if (typeof session_id === "string" && session_id.length > 0)
+      file.session_id = session_id;
     return file;
   }
   return null;
@@ -117,6 +119,11 @@ function bearerHeader(file) {
     return {};
   return { Authorization: `Bearer ${file.token}` };
 }
+function sessionHeader(file) {
+  if (!file || !file.session_id)
+    return {};
+  return { "X-Gramatr-Session": file.session_id };
+}
 function apiV1Base(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return `${trimmed}/api/v1`;
@@ -129,7 +136,12 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${file.token}`
+        Authorization: `Bearer ${file.token}`,
+        // The presenting (soon-to-expire) token already carries a resolvable
+        // session_id server-side, so the renew call is NOT exempt from the
+        // binding header (#5258 Unit 3 / #3538, scope doc Open Question 2) —
+        // `sessionHeader` degrades to `{}` on an old file with no `session_id`.
+        ...sessionHeader(file)
       },
       signal: AbortSignal.timeout(RENEW_TIMEOUT_MS)
     });
@@ -158,7 +170,10 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
     // when absent, writeSessionToken stamps a fresh written_at fallback.
     issued_at: body.issued_at,
     base_url: file.base_url,
-    aud: file.aud
+    aud: file.aud,
+    // session_id (#5258 Unit 2 / #3538): the renew response may not re-send it,
+    // so preserve it from the presenting file — same treatment as aud/base_url.
+    session_id: file.session_id
   });
   if (!fresh) {
     return { status: "error" };
@@ -582,7 +597,7 @@ async function chunkFlushTurns(turns, url, token, opts) {
     try {
       const res = await opts.fetchImpl(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...bearerHeader(token) },
+        headers: { "Content-Type": "application/json", ...bearerHeader(token), ...sessionHeader(token) },
         body: JSON.stringify({ client_type: "claude-code", turns: chunk }),
         signal: AbortSignal.timeout(opts.timeoutMs)
       });
@@ -804,7 +819,8 @@ async function postTurnFeedback(projectDir, input, fetchImpl = fetch) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...bearerHeader(token)
+        ...bearerHeader(token),
+        ...sessionHeader(token)
       },
       body,
       signal: AbortSignal.timeout(FEEDBACK_TIMEOUT_MS)

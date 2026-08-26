@@ -195,13 +195,15 @@ function getSessionTokenPath(projectDir) {
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
     return null;
-  const { token, expires_at, base_url, aud, issued_at, written_at } = block;
+  const { token, expires_at, base_url, aud, issued_at, written_at, session_id } = block;
   if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
     const file = { token, expires_at, base_url, aud };
     if (typeof issued_at === "string" && issued_at.length > 0)
       file.issued_at = issued_at;
     if (typeof written_at === "string" && written_at.length > 0)
       file.written_at = written_at;
+    if (typeof session_id === "string" && session_id.length > 0)
+      file.session_id = session_id;
     return file;
   }
   return null;
@@ -667,8 +669,8 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.34.15") {
-      return "0.34.15";
+    if ("0.34.16") {
+      return "0.34.16";
     }
   } catch {
   }
