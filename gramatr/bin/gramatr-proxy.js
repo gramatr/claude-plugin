@@ -28,9 +28,9 @@ __export(plugin_proxy_exports, {
 });
 module.exports = __toCommonJS(plugin_proxy_exports);
 var import_node_readline = require("node:readline");
-var import_node_child_process3 = require("node:child_process");
-var import_node_fs6 = require("node:fs");
-var import_node_path6 = require("node:path");
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs7 = require("node:fs");
+var import_node_path7 = require("node:path");
 var import_node_url = require("node:url");
 
 // dist/config-runtime.js
@@ -186,6 +186,35 @@ function writeLegacySessionJson(projectDir, session) {
 // dist/hooks/lib/session-rest-token.js
 var import_node_fs2 = require("node:fs");
 var import_node_path2 = require("node:path");
+
+// ../proof-crypto/dist/index.js
+var import_node_crypto = require("node:crypto");
+function generateEd25519KeyPair() {
+  const { privateKey, publicKey } = (0, import_node_crypto.generateKeyPairSync)("ed25519");
+  return { privateKey, publicKey };
+}
+function toPublicJwk(publicKey) {
+  const jwk = publicKey.export({ format: "jwk" });
+  if (!jwk.x) {
+    throw new Error('proof-crypto: public key JWK export missing required "x" member');
+  }
+  return { kty: "OKP", crv: "Ed25519", x: jwk.x };
+}
+function jwkThumbprint(jwk) {
+  const canonical = `{"crv":"${jwk.crv}","kty":"${jwk.kty}","x":"${jwk.x}"}`;
+  return (0, import_node_crypto.createHash)("sha256").update(canonical).digest("base64url");
+}
+function b64url(input) {
+  return Buffer.from(input).toString("base64url");
+}
+function buildCompactEnvelope(privateKey, publicJwk, typ, payload) {
+  const header = { typ, alg: "EdDSA", jwk: publicJwk };
+  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  const signature = (0, import_node_crypto.sign)(null, Buffer.from(signingInput, "ascii"), privateKey);
+  return `${signingInput}.${b64url(signature)}`;
+}
+
+// dist/hooks/lib/session-rest-token.js
 var GRAMATR_DIR2 = ".gramatr";
 var SESSION_FILE = ".session";
 var SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
@@ -542,17 +571,244 @@ function healDeadCredential(kind) {
 }
 
 // dist/hooks/lib/proxy-token-ladder.js
+var import_node_fs6 = require("node:fs");
+var import_node_path6 = require("node:path");
+
+// dist/hooks/lib/device-key.js
+var import_node_crypto2 = require("node:crypto");
+function generateDeviceKeyPair() {
+  const { privateKey, publicKey } = generateEd25519KeyPair();
+  const publicJwk = toPublicJwk(publicKey);
+  const thumbprint = jwkThumbprint(publicJwk);
+  return { privateKey, publicKey, publicJwk, thumbprint };
+}
+var DEVICE_JWT_TYP = "device-key+jwt";
+function buildDeviceProof(keyPair, params) {
+  return buildCompactEnvelope(keyPair.privateKey, keyPair.publicJwk, DEVICE_JWT_TYP, {
+    nonce: params.nonce,
+    iat: params.iat ?? Math.floor(Date.now() / 1e3),
+    jti: params.jti ?? b64url((0, import_node_crypto2.randomBytes)(16)),
+    ...params.backend ? { backend: params.backend } : {}
+  });
+}
+
+// dist/hooks/lib/device-key-store.js
+var import_node_child_process3 = require("node:child_process");
 var import_node_fs5 = require("node:fs");
 var import_node_path5 = require("node:path");
+var import_node_crypto3 = require("node:crypto");
+var spawnImpl2 = import_node_child_process3.spawnSync;
+var platformImpl2 = null;
+function currentPlatform2() {
+  return platformImpl2 ?? process.platform;
+}
+var KEYRING_SERVICE2 = "gramatr-device-key";
+var KEYRING_ACCOUNT2 = "gramatr";
+var FILE_BACKEND_NAME2 = ".device-key";
+var KEYRING_CMD_TIMEOUT_MS2 = 3e3;
+function toBackendKind(backend) {
+  return backend === "macos" || backend === "secret-tool" || backend === "windows" ? "keychain" : "file";
+}
+function runKeyringCmd2(cmd, args, input) {
+  try {
+    const res = spawnImpl2(cmd, args, {
+      timeout: KEYRING_CMD_TIMEOUT_MS2,
+      encoding: "utf8",
+      input,
+      // Never inherit stdio — keep secret bytes off the terminal.
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (!res || res.error || res.status !== 0)
+      return null;
+    return { stdout: res.stdout ?? "" };
+  } catch {
+    return null;
+  }
+}
+function macosWrite2(secret) {
+  const res = runKeyringCmd2("security", [
+    "add-generic-password",
+    "-a",
+    KEYRING_ACCOUNT2,
+    "-s",
+    KEYRING_SERVICE2,
+    "-U",
+    "-w",
+    secret
+  ]);
+  return res !== null;
+}
+function macosRead2() {
+  const res = runKeyringCmd2("security", [
+    "find-generic-password",
+    "-a",
+    KEYRING_ACCOUNT2,
+    "-s",
+    KEYRING_SERVICE2,
+    "-w"
+  ]);
+  if (!res)
+    return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function secretToolWrite2(secret) {
+  const res = runKeyringCmd2("secret-tool", ["store", "--label", KEYRING_SERVICE2, "service", KEYRING_SERVICE2, "account", KEYRING_ACCOUNT2], secret);
+  return res !== null;
+}
+function secretToolRead2() {
+  const res = runKeyringCmd2("secret-tool", [
+    "lookup",
+    "service",
+    KEYRING_SERVICE2,
+    "account",
+    KEYRING_ACCOUNT2
+  ]);
+  if (!res)
+    return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function windowsWrite2(secret) {
+  const target = `${KEYRING_SERVICE2}:${KEYRING_ACCOUNT2}`;
+  const res = runKeyringCmd2("cmdkey", [
+    `/generic:${target}`,
+    `/user:${KEYRING_ACCOUNT2}`,
+    `/pass:${secret}`
+  ]);
+  return res !== null;
+}
+function windowsRead2() {
+  const target = `${KEYRING_SERVICE2}:${KEYRING_ACCOUNT2}`;
+  const script = `$ErrorActionPreference='SilentlyContinue';[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime];try{$v=New-Object Windows.Security.Credentials.PasswordVault;$c=$v.Retrieve('${target}','${KEYRING_ACCOUNT2}');$c.RetrievePassword();$c.Password}catch{''}`;
+  const res = runKeyringCmd2("powershell", ["-NoProfile", "-Command", script]);
+  if (!res)
+    return null;
+  const out = res.stdout.trim();
+  return out.length > 0 ? out : null;
+}
+function fileWrite2(record) {
+  try {
+    const dir = (0, import_node_path5.join)(getHomeDir(), ".gramatr");
+    if (!(0, import_node_fs5.existsSync)(dir))
+      (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dest = getFileBackendPath2();
+    const tmp = `${dest}.tmp.${process.pid}`;
+    (0, import_node_fs5.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs5.renameSync)(tmp, dest);
+    try {
+      (0, import_node_fs5.chmodSync)(dest, 384);
+    } catch {
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+function fileRead2() {
+  try {
+    const dest = getFileBackendPath2();
+    if (!(0, import_node_fs5.existsSync)(dest))
+      return null;
+    const raw = (0, import_node_fs5.readFileSync)(dest, "utf8").trim();
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+function getFileBackendPath2() {
+  return (0, import_node_path5.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME2);
+}
+function fileBackendForced2() {
+  return isKeyringFileOnlyFromEnv();
+}
+function nativeBackend2() {
+  if (fileBackendForced2())
+    return "file";
+  switch (currentPlatform2()) {
+    case "darwin":
+      return "macos";
+    case "win32":
+      return "windows";
+    case "linux":
+      return "secret-tool";
+    default:
+      return "file";
+  }
+}
+function reconstructDeviceKeyPair(privateJwk) {
+  const privateKey = (0, import_node_crypto3.createPrivateKey)({ key: privateJwk, format: "jwk" });
+  const publicKey = (0, import_node_crypto3.createPublicKey)(privateKey);
+  const publicJwk = toPublicJwk(publicKey);
+  const thumbprint = jwkThumbprint(publicJwk);
+  return { privateKey, publicKey, publicJwk, thumbprint };
+}
+function writeDeviceKey(keyPair) {
+  const privateJwk = keyPair.privateKey.export({ format: "jwk" });
+  const payload = JSON.stringify({ privateJwk });
+  const backend = nativeBackend2();
+  if (backend === "macos" && macosWrite2(payload))
+    return "macos";
+  if (backend === "secret-tool" && secretToolWrite2(payload))
+    return "secret-tool";
+  if (backend === "windows" && windowsWrite2(payload))
+    return "windows";
+  return fileWrite2(payload) ? "file" : "none";
+}
+function readDeviceKey() {
+  const backend = nativeBackend2();
+  let raw = null;
+  let servedBy = "none";
+  if (backend === "macos") {
+    raw = macosRead2();
+    if (raw)
+      servedBy = "macos";
+  } else if (backend === "secret-tool") {
+    raw = secretToolRead2();
+    if (raw)
+      servedBy = "secret-tool";
+  } else if (backend === "windows") {
+    raw = windowsRead2();
+    if (raw)
+      servedBy = "windows";
+  }
+  if (!raw) {
+    raw = fileRead2();
+    if (raw)
+      servedBy = "file";
+  }
+  if (!raw)
+    return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const jwk = parsed.privateJwk;
+    if (!jwk || jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string" || jwk.x.length === 0 || typeof jwk.d !== "string" || jwk.d.length === 0) {
+      return null;
+    }
+    return { keyPair: reconstructDeviceKeyPair(jwk), backend: toBackendKind(servedBy) };
+  } catch {
+    return null;
+  }
+}
+function getOrCreateDeviceKeyPair() {
+  const existing = readDeviceKey();
+  if (existing)
+    return existing;
+  const keyPair = generateDeviceKeyPair();
+  const backend = writeDeviceKey(keyPair);
+  return { keyPair, backend: toBackendKind(backend) };
+}
+
+// dist/hooks/lib/proxy-token-ladder.js
 var TOKEN_FILE = "token.json";
 var MINT_TIMEOUT_MS = 3e3;
 var PROXY_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
 function getProxyTokenPath(dataDir) {
-  return (0, import_node_path5.join)(dataDir, TOKEN_FILE);
+  return (0, import_node_path6.join)(dataDir, TOKEN_FILE);
 }
 function readProxyToken(dataDir) {
   try {
-    const raw = (0, import_node_fs5.readFileSync)(getProxyTokenPath(dataDir), "utf8");
+    const raw = (0, import_node_fs6.readFileSync)(getProxyTokenPath(dataDir), "utf8");
     const parsed = JSON.parse(raw);
     if (typeof parsed.token === "string" && parsed.token.length > 0) {
       const rec = { token: parsed.token };
@@ -570,12 +826,12 @@ function readProxyToken(dataDir) {
   }
 }
 function writeProxyToken(dataDir, record) {
-  if (!(0, import_node_fs5.existsSync)(dataDir))
-    (0, import_node_fs5.mkdirSync)(dataDir, { recursive: true });
+  if (!(0, import_node_fs6.existsSync)(dataDir))
+    (0, import_node_fs6.mkdirSync)(dataDir, { recursive: true });
   const dest = getProxyTokenPath(dataDir);
   const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs5.writeFileSync)(tmp, JSON.stringify(record, null, 2) + "\n", "utf8");
-  (0, import_node_fs5.renameSync)(tmp, dest);
+  (0, import_node_fs6.writeFileSync)(tmp, JSON.stringify(record, null, 2) + "\n", "utf8");
+  (0, import_node_fs6.renameSync)(tmp, dest);
 }
 function shouldProactivelyMint(record, now = Date.now()) {
   if (!record || !record.issued_at || !record.expires_at)
@@ -589,6 +845,17 @@ function shouldProactivelyMint(record, now = Date.now()) {
     return false;
   const elapsed = now - start;
   return elapsed >= lifetime * PROXY_TOKEN_PROACTIVE_RENEW_FRACTION;
+}
+function buildMintDeviceProofHeader(url) {
+  try {
+    const { keyPair, backend } = getOrCreateDeviceKeyPair();
+    return buildDeviceProof(keyPair, {
+      nonce: url,
+      backend: backend === "keychain" ? "keychain" : "file"
+    });
+  } catch {
+    return void 0;
+  }
 }
 function normalizeRotatedCredential(block) {
   if (!block || typeof block !== "object")
@@ -621,13 +888,15 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
   if (!trimmed)
     return { status: "no_credential" };
   const url = `${apiV1Base(trimmed)}/session/token/mint`;
+  const deviceProof = buildMintDeviceProofHeader(url);
   let res;
   try {
     res = await fetchImpl(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${record.token}`
+        Authorization: `Bearer ${record.token}`,
+        ...deviceProof ? { "X-Gramatr-Device-Proof": deviceProof } : {}
       },
       signal: AbortSignal.timeout(MINT_TIMEOUT_MS)
     });
@@ -669,20 +938,20 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.34.16") {
-      return "0.34.16";
+    if ("0.34.17") {
+      return "0.34.17";
     }
   } catch {
   }
   try {
-    const here = (0, import_node_path6.dirname)((0, import_node_url.fileURLToPath)(import_meta.url));
+    const here = (0, import_node_path7.dirname)((0, import_node_url.fileURLToPath)(import_meta.url));
     for (const candidate of [
-      (0, import_node_path6.join)(here, "..", "..", "package.json"),
-      (0, import_node_path6.join)(here, "..", "package.json"),
-      (0, import_node_path6.join)(here, "..", "..", "..", "package.json")
+      (0, import_node_path7.join)(here, "..", "..", "package.json"),
+      (0, import_node_path7.join)(here, "..", "package.json"),
+      (0, import_node_path7.join)(here, "..", "..", "..", "package.json")
     ]) {
-      if ((0, import_node_fs6.existsSync)(candidate)) {
-        const pkg = JSON.parse((0, import_node_fs6.readFileSync)(candidate, "utf8"));
+      if ((0, import_node_fs7.existsSync)(candidate)) {
+        const pkg = JSON.parse((0, import_node_fs7.readFileSync)(candidate, "utf8"));
         if (typeof pkg.version === "string" && pkg.version)
           return pkg.version;
       }
@@ -720,15 +989,15 @@ function getToken() {
     return envToken;
   if (PLUGIN_DATA_DIR) {
     try {
-      const cfg = JSON.parse((0, import_node_fs6.readFileSync)((0, import_node_path6.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs7.readFileSync)((0, import_node_path7.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
     }
   }
   try {
-    const credFile = (0, import_node_path6.resolve)(HOME_DIR, ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs6.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path7.resolve)(HOME_DIR, ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs7.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -811,8 +1080,8 @@ async function pollDeviceFlowOnce(flow) {
   if (pollRes.ok && typeof pollPayload.access_token === "string") {
     const accessToken = pollPayload.access_token;
     if (PLUGIN_DATA_DIR) {
-      (0, import_node_fs6.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
-      (0, import_node_fs6.writeFileSync)((0, import_node_path6.join)(PLUGIN_DATA_DIR, "token.json"), JSON.stringify({ token: accessToken }, null, 2) + "\n", "utf8");
+      (0, import_node_fs7.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
+      (0, import_node_fs7.writeFileSync)((0, import_node_path7.join)(PLUGIN_DATA_DIR, "token.json"), JSON.stringify({ token: accessToken }, null, 2) + "\n", "utf8");
     }
     inFlightDeviceFlow = void 0;
     process.stderr.write("gr\u0101matr: Authenticated successfully.\n");
@@ -891,8 +1160,8 @@ function startTokenFileWatch() {
   if (!PLUGIN_DATA_DIR)
     return;
   try {
-    (0, import_node_fs6.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
-    tokenFileWatcher = (0, import_node_fs6.watch)(PLUGIN_DATA_DIR, (_eventType, filename) => {
+    (0, import_node_fs7.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
+    tokenFileWatcher = (0, import_node_fs7.watch)(PLUGIN_DATA_DIR, (_eventType, filename) => {
       if (filename !== null && filename !== "token.json")
         return;
       if (tokenWatchDebounceTimer)
@@ -937,7 +1206,7 @@ function writeSessionFile(responseText, projectDir) {
 }
 function buildBootstrapNoOpResult(projectDir) {
   try {
-    const raw = (0, import_node_fs6.readFileSync)((0, import_node_path6.join)(projectDir, ".gramatr", "session.json"), "utf8");
+    const raw = (0, import_node_fs7.readFileSync)((0, import_node_path7.join)(projectDir, ".gramatr", "session.json"), "utf8");
     const parsed = JSON.parse(raw);
     const sessionId = typeof parsed.session_id === "string" ? parsed.session_id : void 0;
     if (!sessionId)
@@ -1026,7 +1295,7 @@ async function forwardWithLadder(message) {
 }
 function getGitRemote(cwd) {
   try {
-    const result = (0, import_node_child_process3.spawnSync)("git", ["-C", cwd, "remote", "get-url", "origin"], {
+    const result = (0, import_node_child_process4.spawnSync)("git", ["-C", cwd, "remote", "get-url", "origin"], {
       timeout: 2e3,
       encoding: "utf8"
     });
@@ -1039,9 +1308,9 @@ function getGitRemote(cwd) {
 }
 function getProjectId(cwd) {
   try {
-    const projectFile = (0, import_node_path6.join)(cwd, ".gramatr", "project.json");
-    if ((0, import_node_fs6.existsSync)(projectFile)) {
-      const data = JSON.parse((0, import_node_fs6.readFileSync)(projectFile, "utf8"));
+    const projectFile = (0, import_node_path7.join)(cwd, ".gramatr", "project.json");
+    if ((0, import_node_fs7.existsSync)(projectFile)) {
+      const data = JSON.parse((0, import_node_fs7.readFileSync)(projectFile, "utf8"));
       if (typeof data.project_id === "string" && data.project_id) {
         return data.project_id;
       }
@@ -1124,7 +1393,7 @@ async function handleMessage(msg) {
       const args = params.arguments ?? {};
       const cwd = typeof args.cwd === "string" ? args.cwd : process.cwd();
       const bootstrapProjectDir = resolveProjectDir({ cwd, clientType: "claude-code" });
-      const sessionJsonExists = (0, import_node_fs6.existsSync)((0, import_node_path6.join)(bootstrapProjectDir, ".gramatr", "session.json"));
+      const sessionJsonExists = (0, import_node_fs7.existsSync)((0, import_node_path7.join)(bootstrapProjectDir, ".gramatr", "session.json"));
       if (shouldSkipBootstrap(bootstrapProjectDir, sessionJsonExists)) {
         const noOpResult = buildBootstrapNoOpResult(bootstrapProjectDir);
         if (noOpResult) {
