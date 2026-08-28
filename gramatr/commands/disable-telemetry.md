@@ -1,19 +1,23 @@
 ---
-description: Disable the automatic Claude Code native OTel telemetry (#4718) — removes the OTEL_*/CLAUDE_CODE_ENABLE_TELEMETRY keys from ~/.claude/settings.json and sets a persistent opt-out flag so SessionStart never re-adds them.
+description: Disable grāmatr's automatic native OTel telemetry — removes the OTEL_*/CLAUDE_CODE_ENABLE_TELEMETRY keys from ~/.claude/settings.json AND the [otel]/[analytics] tables from ~/.codex/config.toml, and sets a persistent opt-out flag so SessionStart never re-adds them.
 allowed-tools: Bash
 ---
 
 # /gramatr:disable-telemetry
 
-Disables the automatic Claude Code → grāmatr collector telemetry wiring (issue #4718,
-part of epic #4717). Performs two things:
+Disables the automatic client → grāmatr collector telemetry wiring (issues #4718 /
+#5301, part of epic #4717 and epic #5297). Performs three things:
 
 1. A safe **read-modify-write** on `~/.claude/settings.json`: only the six
    `CLAUDE_CODE_ENABLE_TELEMETRY` / `OTEL_*` keys inside `env` are removed. No other
    settings, and no other `env` entries, are touched.
-2. Sets `telemetry.disabled: true` in `~/.gramatr.json` — a persistent opt-out flag.
-   Without this, the next `SessionStart` would silently re-add the `env` block on its
-   next launch (the whole point of #4718 is that it's automatic).
+2. A safe **removal** of the grāmatr-owned `[otel]` / `[analytics]` tables from
+   `~/.codex/config.toml` (Codex CLI's native OTel config, epic #5297). Every other
+   table/key in that file is preserved. This is a no-op on machines that never ran
+   Codex (no file, or no grāmatr tables) — so it is always safe to run.
+3. Sets `telemetry.disabled: true` in `~/.gramatr.json` — a persistent opt-out flag.
+   Without this, the next `SessionStart` would silently re-add the config on its next
+   launch (the whole point of #4718/#5297 is that it's automatic).
 
 ## Steps
 
@@ -62,5 +66,16 @@ console.log('OK: OTel keys removed from', settingsPath);
 console.log('OK: telemetry.disabled=true written to', gramatrPath);
 console.log('Restart Claude Code for the removal to take effect.');
 "`
+
+**3. Remove Codex CLI's native OTel config (epic #5297)**
+
+Removes the grāmatr-owned `[otel]` / `[analytics]` tables from `~/.codex/config.toml`
+via the bundled bin (uses a real TOML parser so unrelated tables/comments are never
+corrupted). Only removes tables grāmatr itself confirmed writing (tracked via an
+ownership marker in `~/.gramatr/`) — never touches `[otel]`/`[analytics]` you
+configured yourself independently of grāmatr, even if present. No-op success on
+machines without a Codex config, without those tables, or without the marker.
+
+!`node "${CLAUDE_PLUGIN_ROOT}/bin/disable-telemetry-codex.js"`
 
 Report the result to the user. Mention `/gramatr:enable-telemetry` re-enables it.

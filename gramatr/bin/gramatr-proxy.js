@@ -171,6 +171,20 @@ function patchRuntime(projectDir, patch) {
 function writeActiveSession(projectDir, session) {
   patchRuntime(projectDir, { active_session: session });
 }
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const defined = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== void 0)
+      defined[k] = v;
+  }
+  const next = {
+    session_id: prev?.session_id ?? "",
+    ...prev,
+    ...defined
+  };
+  patchRuntime(projectDir, { active_session: next });
+}
 function writeLegacySessionJson(projectDir, session) {
   const payload = {};
   if (session.session_id)
@@ -181,6 +195,45 @@ function writeLegacySessionJson(projectDir, session) {
     return;
   const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
   atomicWriteJson((0, import_node_path.join)(dir, "session.json"), dir, payload);
+}
+function persistBootstrapSessionState(projectDir, input) {
+  const sessionId = input.sessionId;
+  if (!sessionId)
+    return;
+  const projectId = input.projectId ?? "";
+  const clientType = input.clientType ?? "claude-code";
+  const next = {
+    session_id: sessionId,
+    project_id: projectId,
+    client_session_id: input.clientSessionId || null,
+    client_type: clientType,
+    written_at: (/* @__PURE__ */ new Date()).toISOString(),
+    ...input.model ? { model: input.model } : {}
+  };
+  const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
+  const target = (0, import_node_path.join)(dir, "session.json");
+  let unchanged = false;
+  try {
+    const prev = JSON.parse((0, import_node_fs.readFileSync)(target, "utf8"));
+    unchanged = prev.session_id === next.session_id && prev.project_id === next.project_id && (prev.client_session_id ?? null) === (next.client_session_id ?? null) && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "");
+  } catch {
+  }
+  if (!unchanged) {
+    try {
+      atomicWriteJson(target, dir, next);
+    } catch {
+    }
+  }
+  try {
+    mergeActiveSession(projectDir, {
+      session_id: sessionId,
+      client_session_id: input.clientSessionId || void 0,
+      client_type: clientType,
+      written_at: next.written_at,
+      ...next.model ? { model: next.model } : {}
+    });
+  } catch {
+  }
 }
 
 // dist/hooks/lib/session-rest-token.js
@@ -938,8 +991,8 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.34.17") {
-      return "0.34.17";
+    if ("0.35.0") {
+      return "0.35.0";
     }
   } catch {
   }
@@ -1204,6 +1257,19 @@ function writeSessionFile(responseText, projectDir) {
   } catch {
   }
 }
+function writeSessionBootstrapState(responseText, projectDir) {
+  const dir = resolveProjectDir({ cwd: projectDir, clientType: "claude-code" });
+  try {
+    const parsed = JSON.parse(responseText);
+    const sessionRaw = parsed.session_id ?? parsed.gramatr_session_id;
+    const projectRaw = parsed.project_id ?? parsed.gramatr_project_id;
+    persistBootstrapSessionState(dir, {
+      sessionId: typeof sessionRaw === "string" ? sessionRaw : void 0,
+      projectId: typeof projectRaw === "string" ? projectRaw : void 0
+    });
+  } catch {
+  }
+}
 function buildBootstrapNoOpResult(projectDir) {
   try {
     const raw = (0, import_node_fs7.readFileSync)((0, import_node_path7.join)(projectDir, ".gramatr", "session.json"), "utf8");
@@ -1434,7 +1500,7 @@ async function handleMessage(msg) {
         const contentArr = r.result?.content;
         const text = typeof contentArr?.[0]?.text === "string" ? contentArr[0].text : "";
         if (text)
-          writeSessionFile(text, cwd);
+          writeSessionBootstrapState(text, cwd);
         if (text) {
           try {
             const parsed = JSON.parse(text);

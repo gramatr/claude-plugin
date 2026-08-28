@@ -3,19 +3,6 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node",
-            "args": [
-              "${CLAUDE_PLUGIN_ROOT}/bin/memory-gate.js"
-            ],
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -36,6 +23,19 @@
             "command": "node",
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/bin/input-validator.js"
+            ],
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/memory-gate.js"
             ],
             "timeout": 5
           }
@@ -236,6 +236,14 @@
             "command": "node",
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/bin/git-commit-handoff.js"
+            ],
+            "timeout": 8
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/bash-output-scan.js"
             ],
             "timeout": 8
           }
