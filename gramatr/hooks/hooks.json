@@ -129,7 +129,7 @@
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/bin/ups-route.js"
             ],
-            "timeout": 12
+            "timeout": 65
           }
         ]
       }
