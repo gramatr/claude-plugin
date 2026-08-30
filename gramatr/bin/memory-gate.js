@@ -4,6 +4,42 @@
 // dist/hooks/generated/hook-timeouts.js
 var HOOK_STDIN_DEFAULT_TIMEOUT_MS = 2e3;
 
+// dist/user-config.js
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
+
+// dist/config-runtime.js
+function getHomeDir() {
+  const home = process.env.HOME;
+  if (home && home.length > 0)
+    return home;
+  const userProfile = process.env.USERPROFILE;
+  if (userProfile && userProfile.length > 0)
+    return userProfile;
+  return "";
+}
+
+// dist/user-config.js
+function configPath() {
+  return (0, import_node_path.join)(getHomeDir(), ".gramatr.json");
+}
+function readGramatrJson() {
+  try {
+    const raw = (0, import_node_fs.readFileSync)(configPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+function readMemoryGateDisabled() {
+  const cfg = readGramatrJson();
+  return cfg.memoryGate?.disabled === true;
+}
+
 // dist/hooks/memory-gate.js
 function readStdin(timeoutMs) {
   return new Promise((resolve) => {
@@ -63,6 +99,10 @@ async function runMemoryGateHook(_args = []) {
   }
   const filePath = input.tool_input?.file_path || input.tool_input?.path || "";
   if (isAutoMemoryPath(filePath)) {
+    if (readMemoryGateDisabled()) {
+      process.stdout.write(JSON.stringify(ALLOW_OUTPUT));
+      return 0;
+    }
     process.stdout.write(JSON.stringify(denyOutput(DENY_REASON)));
     return 0;
   }

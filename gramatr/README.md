@@ -33,4 +33,4 @@ https://gramatr.com
 
 ## Version
 
-0.35.7
+0.35.8
