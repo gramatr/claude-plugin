@@ -70,6 +70,56 @@ var init_config_runtime = __esm({
   }
 });
 
+// ../proof-crypto/dist/index.js
+var init_dist = __esm({
+  "../proof-crypto/dist/index.js"() {
+    "use strict";
+  }
+});
+
+// dist/hooks/lib/dpop-key.js
+var init_dpop_key = __esm({
+  "dist/hooks/lib/dpop-key.js"() {
+    "use strict";
+    init_dist();
+  }
+});
+
+// dist/hooks/lib/session-rest-token.js
+var SESSION_TOKEN_EXPIRY_SKEW_MS;
+var init_session_rest_token = __esm({
+  "dist/hooks/lib/session-rest-token.js"() {
+    "use strict";
+    init_dpop_key();
+    SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
+  }
+});
+
+// dist/hooks/lib/mint-credential-store.js
+var init_mint_credential_store = __esm({
+  "dist/hooks/lib/mint-credential-store.js"() {
+    "use strict";
+    init_config_runtime();
+  }
+});
+
+// dist/hooks/lib/device-key.js
+var init_device_key = __esm({
+  "dist/hooks/lib/device-key.js"() {
+    "use strict";
+    init_dist();
+  }
+});
+
+// dist/hooks/lib/device-key-store.js
+var init_device_key_store = __esm({
+  "dist/hooks/lib/device-key-store.js"() {
+    "use strict";
+    init_config_runtime();
+    init_device_key();
+  }
+});
+
 // dist/bin/headless-login-transport.js
 var headless_login_transport_exports = {};
 __export(headless_login_transport_exports, {
@@ -118,11 +168,16 @@ function resolveMcpUrl() {
   return "https://api.gramatr.com/mcp";
 }
 
-// dist/hooks/lib/session-rest-token.js
-var SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
+// dist/hooks/lib/bootstrap-recovery.js
+init_session_rest_token();
 
 // dist/user-config.js
 init_config_runtime();
+
+// dist/hooks/lib/bootstrap-client.js
+init_session_rest_token();
+init_mint_credential_store();
+init_device_key_store();
 
 // dist/hooks/lib/bootstrap-recovery.js
 function findUsableMcpOAuthEntry(remoteUrl) {
