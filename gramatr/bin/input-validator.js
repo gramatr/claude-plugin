@@ -1662,6 +1662,30 @@ var require_proper_lockfile = __commonJS({
   }
 });
 
+// dist/hooks/lib/token-stale.js
+function createSingleFlight() {
+  let inFlight = null;
+  return (fn) => {
+    if (inFlight)
+      return inFlight;
+    const run = fn();
+    inFlight = run;
+    void run.then(() => {
+      if (inFlight === run)
+        inFlight = null;
+    }, () => {
+      if (inFlight === run)
+        inFlight = null;
+    });
+    return run;
+  };
+}
+var init_token_stale = __esm({
+  "dist/hooks/lib/token-stale.js"() {
+    "use strict";
+  }
+});
+
 // dist/server/auth.js
 var auth_exports = {};
 __export(auth_exports, {
@@ -1688,7 +1712,9 @@ function readConfig() {
 }
 function writeConfig(config) {
   try {
-    (0, import_node_fs.writeFileSync)(getConfigPath(), JSON.stringify(config, null, 2), { mode: 384 });
+    const path = getConfigPath();
+    (0, import_node_fs.writeFileSync)(path, JSON.stringify(config, null, 2), { mode: 384 });
+    (0, import_node_fs.chmodSync)(path, 384);
   } catch {
   }
 }
@@ -1745,6 +1771,9 @@ function refreshToken() {
   return cachedToken;
 }
 async function renewToken() {
+  return renewSingleFlight(renewTokenInner);
+}
+async function renewTokenInner() {
   const currentToken = cachedToken ?? readConfig()?.token;
   if (!currentToken)
     return null;
@@ -1821,18 +1850,20 @@ function _resetCacheForTest() {
   renewalInProgress = false;
   WARNED_EXPIRY.clear();
 }
-var import_node_fs, import_node_path, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress;
+var import_node_fs, import_node_path, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress, renewSingleFlight;
 var init_auth = __esm({
   "dist/server/auth.js"() {
     "use strict";
     import_node_fs = require("node:fs");
     import_node_path = require("node:path");
     init_config_runtime();
+    init_token_stale();
     WARNED_EXPIRY = /* @__PURE__ */ new Set();
     RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
     cachedToken = null;
     cachedExpiresAt = null;
     renewalInProgress = false;
+    renewSingleFlight = createSingleFlight();
   }
 });
 

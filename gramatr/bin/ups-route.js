@@ -2599,7 +2599,7 @@ function projectIdFromAud(aud) {
 }
 function debugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path12.join)(home, ".gramatr", "debug");
+  return (0, import_node_path13.join)(home, ".gramatr", "debug");
 }
 function recordTurn1Arming(args) {
   const sample = {
@@ -2615,7 +2615,7 @@ function recordTurn1Arming(args) {
     const dir = debugDir();
     if (!(0, import_node_fs12.existsSync)(dir))
       (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path12.join)(dir, "turn1-arming.jsonl");
+    const jsonlPath = (0, import_node_path13.join)(dir, "turn1-arming.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
     if ((0, import_node_fs12.existsSync)(jsonlPath)) {
@@ -2641,7 +2641,7 @@ function recordBootstrapRecovered(args) {
     const dir = debugDir();
     if (!(0, import_node_fs12.existsSync)(dir))
       (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path12.join)(dir, "bootstrap-recovered.jsonl");
+    const jsonlPath = (0, import_node_path13.join)(dir, "bootstrap-recovered.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
     if ((0, import_node_fs12.existsSync)(jsonlPath)) {
@@ -2660,8 +2660,8 @@ function appendHookPromotionSample(sample) {
     const dir = debugDir();
     if (!(0, import_node_fs12.existsSync)(dir))
       (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path12.join)(dir, "hook-promotion.jsonl");
-    const lastPath = (0, import_node_path12.join)(dir, "last-sample.json");
+    const jsonlPath = (0, import_node_path13.join)(dir, "hook-promotion.jsonl");
+    const lastPath = (0, import_node_path13.join)(dir, "last-sample.json");
     const line = JSON.stringify(sample);
     let existing = [];
     if ((0, import_node_fs12.existsSync)(jsonlPath)) {
@@ -2676,24 +2676,50 @@ function appendHookPromotionSample(sample) {
   } catch {
   }
 }
-var import_node_fs12, import_node_path12, MAX_SAMPLES;
+var import_node_fs12, import_node_path13, MAX_SAMPLES;
 var init_hook_promotion_telemetry = __esm({
   "dist/hooks/lib/hook-promotion-telemetry.js"() {
     "use strict";
     import_node_fs12 = require("node:fs");
-    import_node_path12 = require("node:path");
+    import_node_path13 = require("node:path");
     init_config_runtime();
     MAX_SAMPLES = 200;
   }
 });
 
+// dist/hooks/lib/token-stale.js
+function createSingleFlight() {
+  let inFlight = null;
+  return (fn) => {
+    if (inFlight)
+      return inFlight;
+    const run = fn();
+    inFlight = run;
+    void run.then(() => {
+      if (inFlight === run)
+        inFlight = null;
+    }, () => {
+      if (inFlight === run)
+        inFlight = null;
+    });
+    return run;
+  };
+}
+var init_token_stale = __esm({
+  "dist/hooks/lib/token-stale.js"() {
+    "use strict";
+  }
+});
+
 // dist/server/auth.js
-var RENEWAL_WINDOW_MS;
+var RENEWAL_WINDOW_MS, renewSingleFlight;
 var init_auth = __esm({
   "dist/server/auth.js"() {
     "use strict";
     init_config_runtime();
+    init_token_stale();
     RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
+    renewSingleFlight = createSingleFlight();
   }
 });
 
@@ -2711,7 +2737,7 @@ init_mint_session_token();
 
 // dist/hooks/lib/bootstrap-recovery.js
 var import_node_fs9 = require("node:fs");
-var import_node_path9 = require("node:path");
+var import_node_path10 = require("node:path");
 init_config_runtime();
 
 // dist/hooks/lib/gramatr-hook-utils.js
@@ -2997,8 +3023,21 @@ var import_node_fs6 = require("node:fs");
 var import_node_path6 = require("node:path");
 init_config_runtime();
 var DEFAULT_TTL_SECONDS = 3600;
+var LOCALLY_UNTRUSTED_IDENTITY_FIELDS = [
+  "system_roles",
+  "org_memberships",
+  "team_memberships"
+];
 function configPath() {
   return (0, import_node_path6.join)(getHomeDir(), ".gramatr.json");
+}
+function writeGramatrJsonSecure(next) {
+  const path = configPath();
+  (0, import_node_fs6.writeFileSync)(path, JSON.stringify(next, null, 2) + "\n", { mode: 384 });
+  try {
+    (0, import_node_fs6.chmodSync)(path, 384);
+  } catch {
+  }
 }
 function readGramatrJson() {
   try {
@@ -3028,8 +3067,11 @@ function writeCachedUserIdentity(patch, options) {
       cached_at: (/* @__PURE__ */ new Date()).toISOString(),
       cache_ttl_seconds: patch.cache_ttl_seconds ?? options?.ttlSeconds ?? existing.cache_ttl_seconds ?? DEFAULT_TTL_SECONDS
     };
+    for (const key of LOCALLY_UNTRUSTED_IDENTITY_FIELDS) {
+      delete merged[key];
+    }
     const next = { ...cfg, user: merged };
-    (0, import_node_fs6.writeFileSync)(configPath(), JSON.stringify(next, null, 2) + "\n");
+    writeGramatrJsonSecure(next);
     return true;
   } catch {
     return false;
@@ -3051,21 +3093,50 @@ function isUserIdentityStale(identity) {
 
 // dist/hooks/lib/otel-settings.js
 var import_node_fs7 = require("node:fs");
+var import_node_path8 = require("node:path");
+
+// dist/hooks/lib/resolve-running-script-dir.js
 var import_node_path7 = require("node:path");
+var import_node_url = require("node:url");
+function resolveRunningScriptDir(argv1, importMetaUrl) {
+  if (argv1)
+    return (0, import_node_path7.dirname)(argv1);
+  if (importMetaUrl) {
+    try {
+      return (0, import_node_path7.dirname)((0, import_node_url.fileURLToPath)(importMetaUrl));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// dist/hooks/lib/otel-settings.js
+var import_meta = {};
+var SECRET_ENV_KEYS = ["OTEL_EXPORTER_OTLP_HEADERS"];
+var OTEL_HEADERS_HELPER_KEY = "otelHeadersHelper";
 function buildOtelEnvBlock(inputs) {
   return {
     CLAUDE_CODE_ENABLE_TELEMETRY: "1",
     OTEL_METRICS_EXPORTER: "otlp",
     OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
     OTEL_EXPORTER_OTLP_ENDPOINT: inputs.collectorEndpoint,
-    OTEL_EXPORTER_OTLP_HEADERS: `Authorization=Bearer ${inputs.token}`,
     OTEL_RESOURCE_ATTRIBUTES: `gramatr.session_id=${inputs.sessionId}`
   };
 }
-function writeOtelSettings(homeDir, inputs) {
+function resolveOtelHeadersHelperCommand(argv1 = process.argv[1]) {
+  const here = resolveRunningScriptDir(argv1, import_meta.url);
+  if (here)
+    return `node "${(0, import_node_path8.join)(here, "otel-headers.js")}"`;
+  const pluginRoot = process.env["CLAUDE_PLUGIN_ROOT"];
+  if (pluginRoot)
+    return `node "${(0, import_node_path8.join)(pluginRoot, "bin", "otel-headers.js")}"`;
+  return 'node "otel-headers.js"';
+}
+function writeOtelSettings(homeDir, inputs, argv1 = process.argv[1]) {
   try {
-    const dir = (0, import_node_path7.join)(homeDir, ".claude");
-    const target = (0, import_node_path7.join)(dir, "settings.json");
+    const dir = (0, import_node_path8.join)(homeDir, ".claude");
+    const target = (0, import_node_path8.join)(dir, "settings.json");
     let settings = {};
     if ((0, import_node_fs7.existsSync)(target)) {
       try {
@@ -3075,10 +3146,17 @@ function writeOtelSettings(homeDir, inputs) {
       }
     }
     const existingEnv = settings.env && typeof settings.env === "object" && !Array.isArray(settings.env) ? settings.env : {};
-    settings.env = { ...existingEnv, ...buildOtelEnvBlock(inputs) };
+    const nextEnv = { ...existingEnv, ...buildOtelEnvBlock(inputs) };
+    for (const key of SECRET_ENV_KEYS)
+      delete nextEnv[key];
+    settings.env = nextEnv;
+    settings[OTEL_HEADERS_HELPER_KEY] = resolveOtelHeadersHelperCommand(argv1);
     (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
-    const tmp = (0, import_node_path7.join)(dir, `settings.json.tmp.${process.pid}`);
-    (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(settings, null, 2) + "\n", "utf8");
+    const tmp = (0, import_node_path8.join)(dir, `settings.json.tmp.${process.pid}`);
+    (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(settings, null, 2) + "\n", {
+      encoding: "utf8",
+      mode: 384
+    });
     (0, import_node_fs7.renameSync)(tmp, target);
     return true;
   } catch {
@@ -3091,11 +3169,11 @@ init_session_rest_token();
 
 // dist/hooks/lib/telemetry-token.js
 var import_node_fs8 = require("node:fs");
-var import_node_path8 = require("node:path");
+var import_node_path9 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var TELEMETRY_TOKEN_FILE = ".telemetry-token";
 function getTelemetryTokenPath(projectDir) {
-  return (0, import_node_path8.join)(projectDir, GRAMATR_DIR2, TELEMETRY_TOKEN_FILE);
+  return (0, import_node_path9.join)(projectDir, GRAMATR_DIR2, TELEMETRY_TOKEN_FILE);
 }
 function normalizeTelemetryTokenBlock(block) {
   if (!block || typeof block !== "object")
@@ -3113,7 +3191,7 @@ function normalizeTelemetryTokenBlock(block) {
   return null;
 }
 function writeTelemetryToken(projectDir, file) {
-  const dir = (0, import_node_path8.join)(projectDir, GRAMATR_DIR2);
+  const dir = (0, import_node_path9.join)(projectDir, GRAMATR_DIR2);
   if (!(0, import_node_fs8.existsSync)(dir)) {
     (0, import_node_fs8.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
@@ -3152,7 +3230,6 @@ function persistBootstrapPayload(raw, opts) {
     if (result.telemetryTokenWritten && opts.gramatrSessionId && typeof block?.collector_endpoint === "string" && block.collector_endpoint && typeof block?.token === "string" && !readTelemetryDisabled()) {
       result.otelSettingsWritten = writeOtelSettings(opts.homeDir, {
         sessionId: opts.gramatrSessionId,
-        token: block.token,
         collectorEndpoint: block.collector_endpoint
       });
     }
@@ -3172,7 +3249,7 @@ function persistBootstrapPayload(raw, opts) {
 // dist/hooks/lib/bootstrap-recovery.js
 function readGitRemoteFromProjectFile(projectDir) {
   try {
-    const proj = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path9.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    const proj = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path10.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     const drift = proj.drift;
     const remote = typeof proj.git_remote === "string" && proj.git_remote || drift && typeof drift.git_remote === "string" && drift.git_remote || null;
     return remote || null;
@@ -3184,7 +3261,7 @@ var RECOVERY_TIMEOUT_MS = 3e3;
 var RECOVERY_RETRY_JITTER_MS = 250;
 function findUsableMcpOAuthEntry(remoteUrl) {
   try {
-    const credFile = (0, import_node_path9.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const credFile = (0, import_node_path10.resolve)(getHomeDir(), ".claude", ".credentials.json");
     const creds = JSON.parse((0, import_node_fs9.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
@@ -3210,7 +3287,7 @@ function resolveClientBearerToken(remoteUrl) {
   const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
   if (pluginDataDir) {
     try {
-      const cfg = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path9.join)(pluginDataDir, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path10.join)(pluginDataDir, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
@@ -3271,9 +3348,12 @@ function syncIdentityCacheFromPayload(parsed) {
       id: user.id ?? null,
       email: user.email ?? null,
       display_name: user.display_name ?? null,
-      system_roles: user.system_roles ?? [],
-      org_memberships: user.org_memberships ?? [],
-      team_memberships: user.team_memberships ?? [],
+      // #5905 — system_roles / org_memberships / team_memberships are
+      // deliberately NOT persisted to ~/.gramatr.json. They were read back out
+      // of a 0664 file and rendered as the agent's authoritative privilege and
+      // tenancy context; those axes belong to the token envelope and are
+      // resolved server-side. The twin writer in bin/init-identity.ts was
+      // changed in the same commit.
       timezone: user.timezone ?? null
     });
   } catch {
@@ -3364,11 +3444,11 @@ async function recoverSessionToken(opts) {
 
 // dist/hooks/lib/credential-heal.js
 var import_node_fs10 = require("node:fs");
-var import_node_path10 = require("node:path");
+var import_node_path11 = require("node:path");
 init_config_runtime();
 function isCachedMcpOAuthEntryStale(remoteUrl, now = Date.now()) {
   try {
-    const credFile = (0, import_node_path10.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const credFile = (0, import_node_path11.resolve)(getHomeDir(), ".claude", ".credentials.json");
     const creds = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (!mcpOAuth)
@@ -3419,7 +3499,7 @@ function removeStaleMcpOAuthEntry(creds, remoteUrl) {
   return { creds: out, removed };
 }
 function credentialsFilePath() {
-  return (0, import_node_path10.resolve)(getHomeDir(), ".claude", ".credentials.json");
+  return (0, import_node_path11.resolve)(getHomeDir(), ".claude", ".credentials.json");
 }
 var PURGE_CLI_ENV = "GRAMATR_PURGE_STALE_MCP_OAUTH";
 function runStaleAuthPurge(remoteUrl) {
@@ -3478,11 +3558,11 @@ Now run \`/mcp\` in Claude Code and reconnect gr\u0101matr.
 
 // dist/hooks/lib/server-version-watch.js
 var import_node_fs11 = require("node:fs");
-var import_node_path11 = require("node:path");
+var import_node_path12 = require("node:path");
 var GRAMATR_DIR3 = ".gramatr";
 var SERVER_VERSION_FILE = ".server-version";
 function getServerVersionPath(projectDir) {
-  return (0, import_node_path11.join)(projectDir, GRAMATR_DIR3, SERVER_VERSION_FILE);
+  return (0, import_node_path12.join)(projectDir, GRAMATR_DIR3, SERVER_VERSION_FILE);
 }
 function extractServerVersion(route) {
   if (!route)
@@ -3508,7 +3588,7 @@ function readLastSeenServerVersion(projectDir) {
 }
 function writeLastSeenServerVersion(projectDir, version) {
   try {
-    const dir = (0, import_node_path11.join)(projectDir, GRAMATR_DIR3);
+    const dir = (0, import_node_path12.join)(projectDir, GRAMATR_DIR3);
     if (!(0, import_node_fs11.existsSync)(dir))
       (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getServerVersionPath(projectDir);
@@ -3532,25 +3612,7 @@ init_hook_promotion_telemetry();
 // dist/hooks/lib/version.js
 var import_fs2 = require("fs");
 var import_path2 = require("path");
-
-// dist/hooks/lib/resolve-running-script-dir.js
-var import_node_path13 = require("node:path");
-var import_node_url = require("node:url");
-function resolveRunningScriptDir(argv1, importMetaUrl) {
-  if (argv1)
-    return (0, import_node_path13.dirname)(argv1);
-  if (importMetaUrl) {
-    try {
-      return (0, import_node_path13.dirname)((0, import_node_url.fileURLToPath)(importMetaUrl));
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-// dist/hooks/lib/version.js
-var import_meta = {};
+var import_meta2 = {};
 function findPackageJson(startDir) {
   let dir = startDir;
   for (let i = 0; i < 5; i++) {
@@ -3569,7 +3631,7 @@ function resolveVersion() {
     if (typeof __GRAMATR_VERSION__ === "string" && __GRAMATR_VERSION__.length > 0) {
       return __GRAMATR_VERSION__;
     }
-    const here = resolveRunningScriptDir(process.argv[1], import_meta.url);
+    const here = resolveRunningScriptDir(process.argv[1], import_meta2.url);
     if (!here)
       return "0.0.0";
     const pkgPath = findPackageJson(here);
@@ -3605,10 +3667,23 @@ function findProjectRoot(startDir = process.cwd()) {
   }
 }
 function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
   const git = (args) => {
     try {
       return (0, import_node_child_process3.execFileSync)("git", args, {
         cwd: dir,
+        env: gitEnv,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"]
       }).trim();
@@ -3879,6 +3954,7 @@ function extractMessage(err) {
 }
 
 // dist/proxy/remote-client.js
+init_token_stale();
 var DEBUG = !!process.env.GRAMATR_DEBUG;
 var HOT_PATH_BACKOFF = { attempts: 3, baseMs: 200, capMs: 2e3 };
 var TransientHttpError = class extends Error {

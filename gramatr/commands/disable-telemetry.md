@@ -9,13 +9,16 @@ Disables the automatic client → grāmatr collector telemetry wiring (issues #4
 #5301, part of epic #4717 and epic #5297). Performs three things:
 
 1. A safe **read-modify-write** on `~/.claude/settings.json`: only the six
-   `CLAUDE_CODE_ENABLE_TELEMETRY` / `OTEL_*` keys inside `env` are removed. No other
-   settings, and no other `env` entries, are touched.
+   `CLAUDE_CODE_ENABLE_TELEMETRY` / `OTEL_*` keys inside `env`, plus the top-level
+   `otelHeadersHelper` key (#5905), are removed. No other settings, and no other
+   `env` entries, are touched. Removing `OTEL_EXPORTER_OTLP_HEADERS` here also
+   clears the plaintext bearer that pre-#5905 releases left in that file.
 2. A safe **removal** of the grāmatr-owned `[otel]` / `[analytics]` tables from
    `~/.codex/config.toml` (Codex CLI's native OTel config, epic #5297). Every other
    table/key in that file is preserved. This is a no-op on machines that never ran
    Codex (no file, or no grāmatr tables) — so it is always safe to run.
-3. Sets `telemetry.disabled: true` in `~/.gramatr.json` — a persistent opt-out flag.
+3. Sets `telemetry.disabled: true` in `~/.gramatr.json` (written 0600, #5905) — a
+   persistent opt-out flag.
    Without this, the next `SessionStart` would silently re-add the config on its next
    launch (the whole point of #4718/#5297 is that it's automatic).
 
@@ -37,6 +40,10 @@ if (present.length) {
 } else {
   console.log('STATUS: no OTel keys currently set in settings.json.');
 }
+// #5905 — otelHeadersHelper is the top-level key that names the bin supplying the
+// OTLP Authorization header at emit time. It replaced the plaintext bearer that
+// used to sit in env.OTEL_EXPORTER_OTLP_HEADERS, so disable must clear it too.
+console.log('STATUS: otelHeadersHelper currently', s.otelHeadersHelper ? 'SET' : 'not set');
 let g = {};
 if (fs.existsSync(gramatrPath)) { try { g = JSON.parse(fs.readFileSync(gramatrPath, 'utf8')); } catch(e) {} }
 console.log('STATUS: opt-out flag currently', g.telemetry && g.telemetry.disabled === true ? 'SET' : 'not set');
@@ -54,15 +61,21 @@ let s = {};
 if (fs.existsSync(settingsPath)) { try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch(e) {} }
 const otelKeys = ['CLAUDE_CODE_ENABLE_TELEMETRY','OTEL_METRICS_EXPORTER','OTEL_EXPORTER_OTLP_PROTOCOL','OTEL_EXPORTER_OTLP_ENDPOINT','OTEL_EXPORTER_OTLP_HEADERS','OTEL_RESOURCE_ATTRIBUTES'];
 if (s.env) { for (const k of otelKeys) delete s.env[k]; }
+delete s.otelHeadersHelper;
 fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2) + '\n');
 
 let g = {};
 if (fs.existsSync(gramatrPath)) { try { g = JSON.parse(fs.readFileSync(gramatrPath, 'utf8')); } catch(e) {} }
 g.telemetry = { ...(g.telemetry || {}), disabled: true };
-fs.writeFileSync(gramatrPath, JSON.stringify(g, null, 2) + '\n');
+// #5905 — ~/.gramatr.json is a credential file (its schema carries \`token\`, and
+// it held the identity cache). Every writer sets 0600 on create AND chmods, since
+// the mode option does nothing to a path that already exists — which is exactly
+// how this file ended up 0664 on an operator machine.
+fs.writeFileSync(gramatrPath, JSON.stringify(g, null, 2) + '\n', { mode: 0o600 });
+try { fs.chmodSync(gramatrPath, 0o600); } catch (e) {}
 
-console.log('OK: OTel keys removed from', settingsPath);
+console.log('OK: OTel keys and otelHeadersHelper removed from', settingsPath);
 console.log('OK: telemetry.disabled=true written to', gramatrPath);
 console.log('Restart Claude Code for the removal to take effect.');
 "`

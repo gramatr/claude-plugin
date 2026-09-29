@@ -62,6 +62,56 @@ var init_config_runtime = __esm({
   }
 });
 
+// dist/hooks/lib/token-stale.js
+function isTokenStaleSignal(signal) {
+  if (signal.httpStatus !== 401)
+    return false;
+  if ((signal.bodyError ?? "").toLowerCase() === TOKEN_STALE_ERROR_CODE)
+    return true;
+  const challenge = (signal.wwwAuthenticate ?? "").toLowerCase();
+  if (!challenge)
+    return false;
+  return challenge.includes(`error="${TOKEN_STALE_ERROR_CODE}"`) || challenge.includes(`error=${TOKEN_STALE_ERROR_CODE}`);
+}
+function extractEnvelopeErrorCode(response) {
+  if (typeof response !== "object" || response === null)
+    return null;
+  const err = response.error;
+  if (typeof err !== "object" || err === null)
+    return null;
+  const data = err.data;
+  if (typeof data === "object" && data !== null) {
+    const code = data.error;
+    if (typeof code === "string")
+      return code;
+  }
+  return null;
+}
+function createSingleFlight() {
+  let inFlight = null;
+  return (fn) => {
+    if (inFlight)
+      return inFlight;
+    const run = fn();
+    inFlight = run;
+    void run.then(() => {
+      if (inFlight === run)
+        inFlight = null;
+    }, () => {
+      if (inFlight === run)
+        inFlight = null;
+    });
+    return run;
+  };
+}
+var TOKEN_STALE_ERROR_CODE;
+var init_token_stale = __esm({
+  "dist/hooks/lib/token-stale.js"() {
+    "use strict";
+    TOKEN_STALE_ERROR_CODE = "token_stale";
+  }
+});
+
 // dist/server/auth.js
 function getConfigPath() {
   const gramatrDir = getGramatrDirFromEnv();
@@ -80,7 +130,9 @@ function readConfig() {
 }
 function writeConfig(config) {
   try {
-    (0, import_node_fs.writeFileSync)(getConfigPath(), JSON.stringify(config, null, 2), { mode: 384 });
+    const path = getConfigPath();
+    (0, import_node_fs.writeFileSync)(path, JSON.stringify(config, null, 2), { mode: 384 });
+    (0, import_node_fs.chmodSync)(path, 384);
   } catch {
   }
 }
@@ -137,6 +189,9 @@ function refreshToken() {
   return cachedToken;
 }
 async function renewToken() {
+  return renewSingleFlight(renewTokenInner);
+}
+async function renewTokenInner() {
   const currentToken = cachedToken ?? readConfig()?.token;
   if (!currentToken)
     return null;
@@ -207,18 +262,20 @@ function getServerUrl() {
   const config = readConfig();
   return (config?.server_url || "https://api.gramatr.com").replace(/\/mcp\/?$/, "");
 }
-var import_node_fs, import_node_path, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress;
+var import_node_fs, import_node_path, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress, renewSingleFlight;
 var init_auth = __esm({
   "dist/server/auth.js"() {
     "use strict";
     import_node_fs = require("node:fs");
     import_node_path = require("node:path");
     init_config_runtime();
+    init_token_stale();
     WARNED_EXPIRY = /* @__PURE__ */ new Set();
     RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
     cachedToken = null;
     cachedExpiresAt = null;
     renewalInProgress = false;
+    renewSingleFlight = createSingleFlight();
   }
 });
 
@@ -332,6 +389,7 @@ async function withBackoff(fn, opts = {}) {
 }
 
 // dist/proxy/remote-client.js
+init_token_stale();
 var DEBUG = !!process.env.GRAMATR_DEBUG;
 var HOT_PATH_BACKOFF = { attempts: 3, baseMs: 200, capMs: 2e3 };
 var TransientHttpError = class extends Error {
@@ -360,6 +418,23 @@ var remoteBackoffOpts = {
   isRetryable,
   getRetryAfterMs: (err) => err instanceof TransientHttpError ? err.retryAfterMs : void 0
 };
+async function safeJson(response) {
+  try {
+    if (typeof response.json !== "function")
+      return {};
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+function extractBodyErrorCode(body) {
+  if (typeof body !== "object" || body === null)
+    return null;
+  const topError = body.error;
+  if (typeof topError === "string")
+    return topError;
+  return extractEnvelopeErrorCode(body);
+}
 function debugLog(label, data) {
   if (!DEBUG)
     return;
@@ -380,14 +455,46 @@ async function callRemoteTool(toolName, args, sessionContext) {
   const attempt = async () => {
     let response = await postToRemote(payload, sessionContext);
     if (response.status === 401) {
-      const refreshed = refreshToken();
-      if (refreshed) {
-        response = await postToRemote(payload);
-      }
-      if (response.status === 401) {
+      const staleSignal = {
+        httpStatus: 401,
+        wwwAuthenticate: response.headers.get("www-authenticate"),
+        // Body read consumes the stream, but on a 401 we always re-post (a fresh
+        // Response), so peeking the body here is safe.
+        bodyError: extractBodyErrorCode(await safeJson(response))
+      };
+      if (isTokenStaleSignal(staleSignal)) {
         const renewed = await renewToken();
-        if (renewed) {
+        if (!renewed) {
+          throw new Error("Remote server error: HTTP 401 \u2014 token_stale; refresh grant failed (re-login required)");
+        }
+        response = await postToRemote(payload, sessionContext);
+        if (response.status === 401) {
+          const churnBody = await safeJson(response);
+          if (isTokenStaleSignal({
+            httpStatus: 401,
+            wwwAuthenticate: response.headers.get("www-authenticate"),
+            bodyError: extractBodyErrorCode(churnBody)
+          })) {
+            process.stderr.write(JSON.stringify({
+              level: "error",
+              event: "token_stale_after_refresh",
+              message: "token_stale persisted after a successful refresh \u2014 epoch churn defect",
+              tool: toolName,
+              component: "remote-client"
+            }) + "\n");
+          }
+          throw new Error("Remote server error: HTTP 401 \u2014 token_stale persisted after refresh");
+        }
+      } else {
+        const refreshed = refreshToken();
+        if (refreshed) {
           response = await postToRemote(payload);
+        }
+        if (response.status === 401) {
+          const renewed = await renewToken();
+          if (renewed) {
+            response = await postToRemote(payload);
+          }
         }
       }
     }

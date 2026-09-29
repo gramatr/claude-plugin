@@ -2683,10 +2683,23 @@ function findProjectRoot(startDir = process.cwd()) {
   }
 }
 function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
   const git = (args) => {
     try {
       return (0, import_node_child_process3.execFileSync)("git", args, {
         cwd: dir,
+        env: gitEnv,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"]
       }).trim();
@@ -2926,10 +2939,36 @@ var SNAPSHOT_FILE = "movement-snapshot.json";
 var MOVEMENT_GIT_TIMEOUT_MS = 250;
 var MOVEMENT_MAX_FILES = 100;
 var MOVEMENT_MAX_COMMITS = 50;
+var MOVEMENT_STATUS_ARGS = [
+  "--no-optional-locks",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.untrackedCache=false",
+  "status",
+  "--porcelain",
+  "--untracked-files=all"
+];
+function gitChildEnv() {
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete env[key];
+  }
+  return env;
+}
 var defaultGitRunner = (args, cwd) => {
   try {
     const res = (0, import_node_child_process4.spawnSync)("git", args, {
       cwd,
+      env: gitChildEnv(),
       timeout: MOVEMENT_GIT_TIMEOUT_MS,
       encoding: "utf8",
       maxBuffer: 4 * 1024 * 1024,
@@ -3028,7 +3067,7 @@ function captureMovement(projectDir, run = defaultGitRunner) {
     if (!isRepo)
       return null;
     const prev = readSnapshot(projectDir);
-    const porcelain = run(["status", "--porcelain"], projectDir);
+    const porcelain = run([...MOVEMENT_STATUS_ARGS], projectDir);
     const files = porcelain ? parsePorcelain(porcelain) : [];
     let commits = [];
     if (prev?.head && head && prev.head !== head) {

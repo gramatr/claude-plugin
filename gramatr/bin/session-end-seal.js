@@ -2492,8 +2492,7 @@ var session_end_seal_exports = {};
 __export(session_end_seal_exports, {
   main: () => main,
   runSessionEndSeal: () => runSessionEndSeal,
-  sealHandoff: () => sealHandoff,
-  sealHandoffAnonymous: () => sealHandoffAnonymous
+  sealHandoff: () => sealHandoff
 });
 module.exports = __toCommonJS(session_end_seal_exports);
 init_session_rest_token();
@@ -2548,10 +2547,23 @@ function findProjectRoot(startDir = process.cwd()) {
   }
 }
 function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
   const git = (args) => {
     try {
       return (0, import_node_child_process3.execFileSync)("git", args, {
         cwd: dir,
+        env: gitEnv,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"]
       }).trim();
@@ -2759,56 +2771,9 @@ async function readHookStdin() {
 }
 
 // dist/bin/session-end-seal.js
-var import_node_fs8 = require("node:fs");
-var import_node_path8 = require("node:path");
 var SEAL_TIMEOUT_MS = 8e3;
 function resolveProjectDir2(sessionId) {
   return resolveSessionRoot({ sessionId, clientType: "claude-code" });
-}
-function readClientSessionId(projectDir) {
-  const gramatrDir = (0, import_node_path8.join)(projectDir, ".gramatr");
-  const runtimePath = (0, import_node_path8.join)(gramatrDir, "runtime.json");
-  try {
-    if ((0, import_node_fs8.existsSync)(runtimePath)) {
-      const raw = JSON.parse((0, import_node_fs8.readFileSync)(runtimePath, "utf8"));
-      const id = raw?.active_session?.client_session_id;
-      if (typeof id === "string" && id.length > 0)
-        return id;
-    }
-  } catch {
-  }
-  const sessionPath = (0, import_node_path8.join)(gramatrDir, "session.json");
-  try {
-    if ((0, import_node_fs8.existsSync)(sessionPath)) {
-      const raw = JSON.parse((0, import_node_fs8.readFileSync)(sessionPath, "utf8"));
-      const id = raw?.client_session_id;
-      if (typeof id === "string" && id.length > 0)
-        return id;
-    }
-  } catch {
-  }
-  return null;
-}
-async function sealHandoffAnonymous(projectDir, input, fetchImpl = fetch) {
-  const clientSessionId = readClientSessionId(projectDir);
-  if (!clientSessionId)
-    return { status: "no_session_id" };
-  const baseUrl = (process.env["GRAMATR_URL"] ?? "https://api.gramatr.com").replace(/\/mcp\/?$/, "").replace(/\/+$/, "");
-  const url = `${baseUrl}/api/v1/session/seal`;
-  try {
-    const res = await fetchImpl(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_session_id: clientSessionId,
-        ...input.reason ? { reason: input.reason } : {}
-      }),
-      signal: AbortSignal.timeout(SEAL_TIMEOUT_MS)
-    });
-    return res.ok ? { status: "sealed_anonymous" } : { status: "error" };
-  } catch {
-    return { status: "error" };
-  }
 }
 async function sealHandoff(projectDir, input, fetchImpl = fetch) {
   const token = await resolveUsableSessionToken(projectDir, fetchImpl);
@@ -2850,8 +2815,6 @@ async function runSessionEndSeal(input, fetchImpl = fetch, projectDir = resolveP
     deleteSessionToken(projectDir);
     clearBufferedTurns(projectDir);
     onStep?.("revoke");
-  } else if (outcome.status === "no_token") {
-    await sealHandoffAnonymous(projectDir, input, fetchImpl);
   }
   return outcome;
 }
@@ -2870,6 +2833,5 @@ if (process.env.GRAMATR_SESSION_END_SEAL_NO_AUTOSTART !== "1") {
 0 && (module.exports = {
   main,
   runSessionEndSeal,
-  sealHandoff,
-  sealHandoffAnonymous
+  sealHandoff
 });

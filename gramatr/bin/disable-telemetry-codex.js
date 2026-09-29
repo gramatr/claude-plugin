@@ -829,6 +829,16 @@ var CODEX_OTEL_TABLES = ["analytics", "otel"];
 function markerPath(homeDir) {
   return (0, import_node_path.join)(homeDir, ".gramatr", "codex-otel-managed");
 }
+function writeCodexConfigAtomic(dir, target, output) {
+  (0, import_node_fs.mkdirSync)(dir, { recursive: true });
+  const tmp = (0, import_node_path.join)(dir, `config.toml.tmp.${process.pid}`);
+  (0, import_node_fs.writeFileSync)(tmp, output, { encoding: "utf8", mode: 384 });
+  (0, import_node_fs.renameSync)(tmp, target);
+  try {
+    (0, import_node_fs.chmodSync)(target, 384);
+  } catch {
+  }
+}
 function hasManagedCodexOtelConfig(homeDir) {
   try {
     if (!(0, import_node_fs.existsSync)(markerPath(homeDir)))
@@ -879,10 +889,7 @@ function removeCodexOtelSettings(homeDir) {
       delete remaining[table];
     const output = Object.keys(remaining).length > 0 ? `${stringify(remaining)}
 ` : "";
-    (0, import_node_fs.mkdirSync)(dir, { recursive: true });
-    const tmp = (0, import_node_path.join)(dir, `config.toml.tmp.${process.pid}`);
-    (0, import_node_fs.writeFileSync)(tmp, output, "utf8");
-    (0, import_node_fs.renameSync)(tmp, target);
+    writeCodexConfigAtomic(dir, target, output);
     removeMarker();
     return true;
   } catch {

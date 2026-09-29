@@ -2506,10 +2506,23 @@ function findProjectRoot(startDir = process.cwd()) {
   }
 }
 function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
   const git = (args) => {
     try {
       return (0, import_node_child_process.execFileSync)("git", args, {
         cwd: dir,
+        env: gitEnv,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"]
       }).trim();
@@ -2723,10 +2736,26 @@ var EMPTY_GIT_STATE = {
   last_commit_age: ""
 };
 var GIT_TIMEOUT_MS = 500;
+function gitChildEnv() {
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete env[key];
+  }
+  return env;
+}
 function runGit(args, cwd) {
   try {
     return (0, import_node_child_process4.execFileSync)("git", args, {
       cwd,
+      env: gitChildEnv(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: GIT_TIMEOUT_MS
@@ -2845,7 +2874,6 @@ function formatContextUsageSegment(ctxFile, limit) {
 }
 
 // dist/bin/statusline.js
-var REMOTE_URL = process.env.GRAMATR_URL ?? "https://api.gramatr.com";
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
 var FETCH_TIMEOUT_MS = 2e3;
 var ownStdinModel = "";
@@ -2986,13 +3014,6 @@ async function tryAuthenticated(gitState) {
   const url = `${apiV1Base(token.base_url)}/statusline?${gitStateQuery(gitState)}`;
   return fetchAndWrite(url, { ...bearerHeader(token), ...sessionHeader(token) });
 }
-async function tryLegacy(gitState) {
-  const sessionId = getSessionId();
-  if (!sessionId)
-    return false;
-  const url = `${REMOTE_URL}/api/v1/statusline/${encodeURIComponent(sessionId)}?${gitStateQuery(gitState)}`;
-  return fetchAndWrite(url, {});
-}
 function tryFileFallback() {
   const path = (0, import_node_path7.join)(PROJECT_DIR, ".gramatr", "statusline.txt");
   if (!(0, import_node_fs6.existsSync)(path))
@@ -3026,8 +3047,6 @@ async function main() {
   }
   const gitState = collectGitState(PROJECT_DIR);
   if (await tryAuthenticated(gitState))
-    return;
-  if (await tryLegacy(gitState))
     return;
   tryFileFallback();
 }

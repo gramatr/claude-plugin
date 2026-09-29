@@ -2270,10 +2270,23 @@ function findProjectRoot(startDir = process.cwd()) {
   }
 }
 function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
   const git = (args) => {
     try {
       return (0, import_node_child_process.execFileSync)("git", args, {
         cwd: dir,
+        env: gitEnv,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"]
       }).trim();
@@ -2671,12 +2684,39 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
   });
 }
 
+// dist/hooks/lib/token-stale.js
+var TOKEN_STALE_ERROR_CODE = "token_stale";
+function isTokenStaleSignal(signal) {
+  if (signal.httpStatus !== 401)
+    return false;
+  if ((signal.bodyError ?? "").toLowerCase() === TOKEN_STALE_ERROR_CODE)
+    return true;
+  const challenge = (signal.wwwAuthenticate ?? "").toLowerCase();
+  if (!challenge)
+    return false;
+  return challenge.includes(`error="${TOKEN_STALE_ERROR_CODE}"`) || challenge.includes(`error=${TOKEN_STALE_ERROR_CODE}`);
+}
+function extractEnvelopeErrorCode(response) {
+  if (typeof response !== "object" || response === null)
+    return null;
+  const err = response.error;
+  if (typeof err !== "object" || err === null)
+    return null;
+  const data = err.data;
+  if (typeof data === "object" && data !== null) {
+    const code = data.error;
+    if (typeof code === "string")
+      return code;
+  }
+  return null;
+}
+
 // dist/bin/plugin-proxy.js
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.35.33") {
-      return "0.35.33";
+    if ("0.35.34") {
+      return "0.35.34";
     }
   } catch {
   }
@@ -3042,6 +3082,17 @@ async function forwardWithLadder(message) {
   const second = await forwardToRemote(message);
   process.stderr.write(`gr\u0101matr-proxy: reactive re-mint retry \u2192 HTTP ${second.httpStatus}
 `);
+  if (isTokenStaleSignal({
+    httpStatus: second.httpStatus,
+    bodyError: extractEnvelopeErrorCode(second.response)
+  })) {
+    process.stderr.write(JSON.stringify({
+      level: "error",
+      event: "token_stale_after_refresh",
+      message: "token_stale persisted after a successful re-mint \u2014 epoch churn defect",
+      component: "plugin-proxy"
+    }) + "\n");
+  }
   return second;
 }
 function getGitRemote(cwd) {
