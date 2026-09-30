@@ -2474,6 +2474,26 @@ function getPluginTokenPath() {
     return null;
   return (0, import_node_path4.join)(pluginDataDir, "token.json");
 }
+function readValidPluginToken() {
+  const tokenPath = getPluginTokenPath();
+  if (!tokenPath)
+    return null;
+  try {
+    const raw = JSON.parse((0, import_node_fs4.readFileSync)(tokenPath, "utf8"));
+    const token = raw.token;
+    if (typeof token !== "string" || token.split(".").length !== 3)
+      return null;
+    const payloadSegment = token.split(".")[1];
+    const padded = payloadSegment.padEnd(payloadSegment.length + (4 - payloadSegment.length % 4) % 4, "=");
+    const payload = JSON.parse(Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    const exp = typeof payload.exp === "number" ? payload.exp : 0;
+    if (exp <= Math.floor(Date.now() / 1e3) + 60)
+      return null;
+    return token;
+  } catch {
+    return null;
+  }
+}
 function purgePluginToken() {
   const tokenPath = getPluginTokenPath();
   if (!tokenPath)
@@ -2715,8 +2735,8 @@ function extractEnvelopeErrorCode(response) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.35.35") {
-      return "0.35.35";
+    if ("0.35.36") {
+      return "0.35.36";
     }
   } catch {
   }
@@ -2789,6 +2809,11 @@ function getToken() {
 }
 var inFlightDeviceFlow;
 async function startDeviceFlow() {
+  const existing = readValidPluginToken();
+  if (existing) {
+    process.stderr.write("gr\u0101matr-proxy: existing token still live \u2014 reusing, no re-auth needed\n");
+    return { status: "approved", accessToken: existing };
+  }
   if (purgePluginToken()) {
     process.stderr.write("gr\u0101matr-proxy: purged stale plugin token before clean re-auth\n");
   }
