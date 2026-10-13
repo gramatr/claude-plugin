@@ -2502,11 +2502,12 @@ var import_node_fs5 = require("node:fs");
 var import_node_path5 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var TURNS_FILE = "pending-turns.json";
-function getTurnBufferPath(projectDir) {
-  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, TURNS_FILE);
+function getTurnBufferPath(projectDir, clientSessionId) {
+  const file = clientSessionId ? `pending-turns-${clientSessionId}.json` : TURNS_FILE;
+  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, file);
 }
-function readBufferedTurns(projectDir) {
-  const dest = getTurnBufferPath(projectDir);
+function readBufferedTurns(projectDir, clientSessionId) {
+  const dest = getTurnBufferPath(projectDir, clientSessionId);
   try {
     if (!(0, import_node_fs5.existsSync)(dest))
       return [];
@@ -2518,9 +2519,9 @@ function readBufferedTurns(projectDir) {
     return [];
   }
 }
-function clearBufferedTurns(projectDir) {
+function clearBufferedTurns(projectDir, clientSessionId) {
   try {
-    (0, import_node_fs5.rmSync)(getTurnBufferPath(projectDir), { force: true });
+    (0, import_node_fs5.rmSync)(getTurnBufferPath(projectDir, clientSessionId), { force: true });
   } catch {
   }
 }
@@ -2779,7 +2780,7 @@ async function sealHandoff(projectDir, input, fetchImpl = fetch) {
   const token = await resolveUsableSessionToken(projectDir, fetchImpl);
   if (!token)
     return { status: "no_token" };
-  const turns = readBufferedTurns(projectDir);
+  const turns = readBufferedTurns(projectDir, input.session_id);
   const url = `${apiV1Base(token.base_url)}/auto-save-handoff`;
   const flushResult = await chunkFlushTurns(turns, url, token, {
     chunkSize: TURN_FLUSH_CHUNK_SIZE,
@@ -2813,7 +2814,7 @@ async function runSessionEndSeal(input, fetchImpl = fetch, projectDir = resolveP
   onStep?.("seal");
   if (outcome.status === "sealed") {
     deleteSessionToken(projectDir);
-    clearBufferedTurns(projectDir);
+    clearBufferedTurns(projectDir, input.session_id);
     onStep?.("revoke");
   }
   return outcome;

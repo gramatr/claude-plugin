@@ -2505,11 +2505,12 @@ var import_node_path5 = require("node:path");
 var GRAMATR_DIR2 = ".gramatr";
 var TURNS_FILE = "pending-turns.json";
 var MAX_BUFFERED_TURNS = 200;
-function getTurnBufferPath(projectDir) {
-  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, TURNS_FILE);
+function getTurnBufferPath(projectDir, clientSessionId) {
+  const file = clientSessionId ? `pending-turns-${clientSessionId}.json` : TURNS_FILE;
+  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, file);
 }
-function readBufferedTurns(projectDir) {
-  const dest = getTurnBufferPath(projectDir);
+function readBufferedTurns(projectDir, clientSessionId) {
+  const dest = getTurnBufferPath(projectDir, clientSessionId);
   try {
     if (!(0, import_node_fs5.existsSync)(dest))
       return [];
@@ -2521,30 +2522,30 @@ function readBufferedTurns(projectDir) {
     return [];
   }
 }
-function writeBufferedTurns(projectDir, turns) {
+function writeBufferedTurns(projectDir, turns, clientSessionId) {
   const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
   if (!(0, import_node_fs5.existsSync)(dir)) {
     (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
-  const dest = getTurnBufferPath(projectDir);
+  const dest = getTurnBufferPath(projectDir, clientSessionId);
   const tmp = `${dest}.tmp.${process.pid}`;
   (0, import_node_fs5.writeFileSync)(tmp, JSON.stringify(turns, null, 2) + "\n", "utf8");
   (0, import_node_fs5.renameSync)(tmp, dest);
 }
-function appendBufferedTurn(projectDir, turn) {
+function appendBufferedTurn(projectDir, turn, clientSessionId) {
   if (!turn || typeof turn.prompt !== "string" || turn.prompt.length === 0)
     return;
   try {
-    const turns = readBufferedTurns(projectDir);
+    const turns = readBufferedTurns(projectDir, clientSessionId);
     turns.push(turn);
     const capped = turns.length > MAX_BUFFERED_TURNS ? turns.slice(-MAX_BUFFERED_TURNS) : turns;
-    writeBufferedTurns(projectDir, capped);
+    writeBufferedTurns(projectDir, capped, clientSessionId);
   } catch {
   }
 }
-function clearBufferedTurns(projectDir) {
+function clearBufferedTurns(projectDir, clientSessionId) {
   try {
-    (0, import_node_fs5.rmSync)(getTurnBufferPath(projectDir), { force: true });
+    (0, import_node_fs5.rmSync)(getTurnBufferPath(projectDir, clientSessionId), { force: true });
   } catch {
   }
 }
@@ -2747,30 +2748,6 @@ function resolveProjectDir(opts = {}) {
     return findProjectRoot();
   })();
   return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
-}
-var CORE_FILE = "project.json";
-var RUNTIME_FILE = "runtime.json";
-function getStatePaths(projectDir) {
-  const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR3);
-  return {
-    core: (0, import_node_path6.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path6.join)(dir, RUNTIME_FILE)
-  };
-}
-function readJson(filePath) {
-  try {
-    if (!(0, import_node_fs7.existsSync)(filePath))
-      return null;
-    return JSON.parse((0, import_node_fs7.readFileSync)(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function readRuntime(projectDir) {
-  return readJson(getStatePaths(projectDir).runtime) ?? {};
-}
-function readCurrentTurnId(projectDir) {
-  return readRuntime(projectDir).current_turn_id ?? null;
 }
 
 // dist/hooks/lib/session-root-registry.js
@@ -3099,7 +3076,6 @@ function captureBothSidesTurn(projectDir, input, parse = parseTranscript, captur
     return null;
   const response = parsed.lastAssistantText ?? "";
   const movement = capture(projectDir);
-  const turnId = readCurrentTurnId(projectDir);
   const turn = {
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
     prompt,
@@ -3109,10 +3085,12 @@ function captureBothSidesTurn(projectDir, input, parse = parseTranscript, captur
     ...input.reason ? { stop_reason: input.reason } : {},
     ...movement ? { movement } : {},
     // #3436 — absent when nothing moved
-    ...turnId ? { turn_id: turnId } : {}
-    // #4040 — absent on pre-#4040 runtimes
+    // #6743 — per-process session id, used server-side to disambiguate the
+    // name-keyed fallback AND (#6747) to resolve the Redis turn_id hand-off.
+    // Absent when the Stop hook input carried no session_id.
+    ...input.session_id ? { client_session_id: input.session_id } : {}
   };
-  appendBufferedTurn(projectDir, turn);
+  appendBufferedTurn(projectDir, turn, input.session_id);
   return turn;
 }
 
@@ -3150,8 +3128,8 @@ async function postTurnFeedback(projectDir, input, fetchImpl = fetch) {
     return false;
   }
 }
-async function flushBufferedTurns(projectDir, fetchImpl = fetch) {
-  const turns = readBufferedTurns(projectDir);
+async function flushBufferedTurns(projectDir, fetchImpl = fetch, clientSessionId) {
+  const turns = readBufferedTurns(projectDir, clientSessionId);
   if (turns.length === 0)
     return true;
   const token = await resolveUsableSessionToken(projectDir, fetchImpl);
@@ -3165,7 +3143,7 @@ async function flushBufferedTurns(projectDir, fetchImpl = fetch) {
   });
   if (result === "error")
     return false;
-  clearBufferedTurns(projectDir);
+  clearBufferedTurns(projectDir, clientSessionId);
   return true;
 }
 async function runStopFeedback(input, fetchImpl = fetch, projectDir = resolveProjectDir2(typeof input.session_id === "string" ? input.session_id : void 0), parse = parseTranscript) {
@@ -3178,7 +3156,7 @@ async function runStopFeedback(input, fetchImpl = fetch, projectDir = resolvePro
   } catch {
   }
   try {
-    await flushBufferedTurns(projectDir, fetchImpl);
+    await flushBufferedTurns(projectDir, fetchImpl, typeof input.session_id === "string" ? input.session_id : void 0);
   } catch {
   }
 }
