@@ -17,11 +17,11 @@ over `/compact` (lossy) and over a bare `/clear` (drops the thread).
 
 **Behavioral test (what success looks like):** after `/continue` completes, the
 window is fresh (the bulk of the prior transcript is gone), AND you hold (a) the
-project's recent turns or turn-summaries, (b) the 5-section handoff, and (c) the
-grāmatr Tier-1 contract — so you can answer "what were we doing?" and resume the
-top `whats_next` item without the user re-explaining. If after `/continue` you
-cannot name the active work and the next step, the rehydrate leg failed — say so,
-do not fabricate.
+project's recent turns (full prompt + response — not summaries, see Step 3), (b)
+the 5-section handoff, and (c) the grāmatr Tier-1 contract — so you can answer
+"what were we doing?" and resume the top `whats_next` item without the user
+re-explaining. If after `/continue` you cannot name the active work and the next
+step, the rehydrate leg failed — say so, do not fabricate.
 
 This command runs entirely client-side: it orchestrates resource reads and a
 synthesis you (the foundation model) perform. The server only serves raw turn
@@ -79,31 +79,35 @@ already fresh and there is no in-session work to seal), skip straight to Step 3.
 Run this leg whenever the window is fresh (right after `/clear`, on resume, or in
 a new session). Use the `project_id` resolved in Step 1.
 
-1. **Cheap scan first.** Call
-   `ReadMcpResource("gramatr://project/recent-turn-summaries/<project_id>?n=5")`.
-   This returns summaries only (no prompt/response blobs) — low-token "what
-   happened?".
-
-2. **Full-context fallback.** If the summaries resource returned **fewer than 3
-   turns**, also call
+1. **Read full turns directly.** Call
    `ReadMcpResource("gramatr://project/recent-turns/<project_id>?n=10")` for the
    full prompt+response turns. (Project-scoped, not session-scoped: after `/clear`
    or in a new session the `session_id` has changed, so the project resource is
    the only path back to the prior thread.)
 
-3. **Load the saved handoff.** Call `load_handoff` with `project_id`. If it
+   Do NOT call `gramatr://project/recent-turn-summaries/<project_id>` first as a
+   "cheap scan" — `summarize_turn` (the only thing that ever populated a turn's
+   `summary` field) was removed from the tool surface (#6749), so every entry
+   that resource returns now has `summary: null`. It still reports a non-zero
+   `count` (one per turn row, regardless of whether `summary` is populated), so
+   the old "fall back to full turns if fewer than 3 summaries came back" logic
+   never actually triggered the fallback — it silently rehydrated from empty
+   summaries instead of real content. Read full turns directly; don't reintroduce
+   the summaries resource as a pre-check.
+
+2. **Load the saved handoff.** Call `load_handoff` with `project_id`. If it
    returns a handoff, treat its 5 sections as the authoritative summary of where
-   the work stands; reconcile against the turns from steps 1–2 (turns are newer if
+   the work stands; reconcile against the turns from step 1 (turns are newer if
    they post-date the handoff).
 
-4. **Re-emit the Tier-1 contract.** The grāmatr behavioral contract (identity,
+3. **Re-emit the Tier-1 contract.** The grāmatr behavioral contract (identity,
    hard gates, always-on directives) is injected fresh by the SessionStart /
    UserPromptSubmit hooks on the next turn — you do not synthesize it. Confirm it
    is in force by following the packet for the rehydrate turn. If this session is
    a `is_resume` or carries a non-empty `handoff` block in Tier 1, `load_handoff`
-   in step 3 already covered it.
+   in step 2 already covered it.
 
-5. **Render a short resume brief** from the rehydrated material:
+4. **Render a short resume brief** from the rehydrated material:
 
    ```
    Thread restored — <slug> (<N> turns)
@@ -136,9 +140,9 @@ a new session). Use the `project_id` resolved in Step 1.
 ## Notes
 
 - This is the consumer of the turn-native continuity resources (#3924 / #3929):
-  `gramatr://project/recent-turn-summaries/<project_id>` (cheap scan) →
-  `gramatr://project/recent-turns/<project_id>` (full fallback when <3) →
-  `load_handoff` (5-section blob) → Tier-1 re-applied by the hooks.
+  `gramatr://project/recent-turns/<project_id>` (full prompt+response turns) →
+  `load_handoff` (5-section blob) → Tier-1 re-applied by the hooks. The
+  `recent-turn-summaries` resource is no longer part of this flow — see Step 3.
 - Under the installed plugin this invokes as `/gramatr:continue` (the bare
   `/continue` does not invoke once the plugin is namespaced) — teach the
   namespaced form in any user-facing hint.
