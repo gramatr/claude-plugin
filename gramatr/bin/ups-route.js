@@ -3732,52 +3732,6 @@ function resolveProjectDir(opts = {}) {
   })();
   return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
 }
-var CORE_FILE = "project.json";
-var RUNTIME_FILE = "runtime.json";
-function getStatePaths(projectDir) {
-  const dir = (0, import_node_path14.join)(projectDir, GRAMATR_DIR4);
-  return {
-    core: (0, import_node_path14.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path14.join)(dir, RUNTIME_FILE)
-  };
-}
-function atomicWriteJson(filePath, dir, payload) {
-  if (!(0, import_node_fs13.existsSync)(dir)) {
-    (0, import_node_fs13.mkdirSync)(dir, { recursive: true, mode: 448 });
-  }
-  const tmp = `${filePath}.tmp.${process.pid}`;
-  (0, import_node_fs13.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs13.renameSync)(tmp, filePath);
-  try {
-    (0, import_node_fs13.chmodSync)(filePath, 384);
-  } catch {
-  }
-}
-function readJson(filePath) {
-  try {
-    if (!(0, import_node_fs13.existsSync)(filePath))
-      return null;
-    return JSON.parse((0, import_node_fs13.readFileSync)(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function readRuntime(projectDir) {
-  return readJson(getStatePaths(projectDir).runtime) ?? {};
-}
-function patchRuntime(projectDir, patch) {
-  const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path14.join)(projectDir, GRAMATR_DIR4);
-  const prev = readRuntime(projectDir);
-  const next = { ...prev, ...patch };
-  if (JSON.stringify(prev) === JSON.stringify(next)) {
-    return;
-  }
-  atomicWriteJson(paths.runtime, dir, next);
-}
-function setCurrentTurnId(projectDir, turnId) {
-  patchRuntime(projectDir, { current_turn_id: turnId ?? void 0 });
-}
 
 // dist/hooks/lib/session-root-registry.js
 var DEFAULT_REGISTRY_TTL_DAYS = 14;
@@ -4114,7 +4068,8 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
     // real package.json version is found on the upward walk) poisoning the
     // server's manifest.update_available computation — mirrors routing.ts's
     // client_version guard (#1869).
-    ...VERSION && VERSION !== "0.0.0" ? { client_version: VERSION } : {}
+    ...VERSION && VERSION !== "0.0.0" ? { client_version: VERSION } : {},
+    ...typeof input.session_id === "string" && input.session_id.length > 0 ? { client_session_id: input.session_id } : {}
   });
   const t0 = Date.now();
   const record = (forToken, status, additionalContext, route) => {
@@ -4204,12 +4159,6 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
       clientType: "claude-code",
       agentName: "Claude Code"
     });
-  } catch {
-  }
-  try {
-    const serverTurnId = attempt.envelope.turn_id;
-    const turnId = typeof serverTurnId === "string" && serverTurnId.length > 0 ? serverTurnId : crypto.randomUUID();
-    setCurrentTurnId(projectDir, turnId);
   } catch {
   }
   if ("turn_id" in attempt.envelope) {
