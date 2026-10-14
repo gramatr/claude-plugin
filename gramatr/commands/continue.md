@@ -58,6 +58,29 @@ turn or handoff would be lost. Protect against that:
    If the session was light (a few turns, nothing decided that the turn store
    would not already hold), skip the explicit save — the turn store already has it.
 
+   Pass `client_session_id` on this call: read `client_session_id` from
+   `.gramatr/session.json` in the current working directory (already written
+   by the existing SessionStart/UserPromptSubmit hooks — never write this file
+   yourself, never invent a parallel pointer file). Unlike `session_id`
+   (`gramatr_session_id` from the packet), which is *deliberately shared across
+   every concurrent agent window in the same project* (`getOrCreateInteraction`,
+   by design — see #4794/#5027), `client_session_id` is a genuinely unique
+   per-process id generated client-side, and is exactly the field the existing
+   turn-forwarding pipeline already uses for the same disambiguation
+   (#6742/#6743/#6747/#6758). `save_handoff` (#6790) stamps it onto the handoff
+   entity and writes an additional, most-specific Redis key keyed on it — this
+   is the real cross-client-safe fix, not a client-side workaround: the server
+   already fans every handoff out to Redis (`handoff:<app>:<user>:<project_id>`,
+   a `:<session_id>` variant, and now a `:client:<client_session_id>` variant,
+   all TTL'd), so ANY client — web, another harness, no filesystem at all — gets
+   the same disambiguation for free via `load_handoff`, and a filesystem-having
+   agent needs no bespoke local pointer file at all. `save_handoff` also still
+   returns an `entity_id` (the #5027 exact-match `handoff_id`) — pass it back to
+   `load_handoff` too when you have it (belt-and-suspenders on top of
+   `client_session_id`, not a replacement for it), but do not persist it to a
+   new local file; `client_session_id` read from the hooks' own existing
+   `.gramatr/session.json` is already durable across `/clear`.
+
 3. Confirm in one line what was sealed (or that nothing needed sealing), e.g.
    "Sealed handoff for `<slug>` — top next: <item>. Clearing now." Then proceed to
    Step 2. **Never clear before this save leg has either written or deliberately
@@ -81,9 +104,13 @@ a new session). Use the `project_id` resolved in Step 1.
 
 1. **Read full turns directly.** Call
    `ReadMcpResource("gramatr://project/recent-turns/<project_id>?n=10")` for the
-   full prompt+response turns. (Project-scoped, not session-scoped: after `/clear`
-   or in a new session the `session_id` has changed, so the project resource is
-   the only path back to the prior thread.)
+   full prompt+response turns. (Project-scoped, not session-scoped: in a
+   genuinely new session — a different terminal/window, not a `/clear` inside
+   the current one — `gramatr_session_id` will differ, so the project resource
+   is the only path back to the prior thread. Within one running harness window,
+   `gramatr_session_id` persists across `/clear` — see Step 3.2 — but don't
+   assume that holds for every client; the project-scoped turn resource is the
+   robust fallback either way.)
 
    Do NOT call `gramatr://project/recent-turn-summaries/<project_id>` first as a
    "cheap scan" — `summarize_turn` (the only thing that ever populated a turn's
@@ -95,10 +122,30 @@ a new session). Use the `project_id` resolved in Step 1.
    summaries instead of real content. Read full turns directly; don't reintroduce
    the summaries resource as a pre-check.
 
-2. **Load the saved handoff.** Call `load_handoff` with `project_id`. If it
-   returns a handoff, treat its 5 sections as the authoritative summary of where
-   the work stands; reconcile against the turns from step 1 (turns are newer if
-   they post-date the handoff).
+2. **Load the saved handoff.** Read `client_session_id` from
+   `.gramatr/session.json` **in the current working directory** (the hooks'
+   own existing file — never read one from elsewhere; a value from a different
+   worktree/clone of this project belongs to a different physical window, not
+   a stale-but-usable one for this one). Call `load_handoff` with `project_id`
+   + `session_id` (from the packet) + `client_session_id` together — pass all
+   three every time, never `client_session_id` alone or omitted. Server-side
+   (#6790), this tries the client-session-scoped match (Redis, then Postgres)
+   *before* the ambiguous session-scoped and project-latest lookups, so two
+   concurrent agent windows sharing the same `gramatr_session_id` each get
+   their own handoff back rather than whichever saved last. This is why no
+   local pointer file is needed here: `client_session_id` already IS the
+   durable-across-`/clear`, cwd-scoped, collision-proof identity — it's read
+   from a file the hooks already maintain, not one this command invents.
+
+   If a prior save in this exact window returned a `handoff_id` you still have
+   in context (unlikely after a `/clear`, since nothing survives it but the
+   hooks' own files), pass that too — it's the strongest disambiguator (#5027)
+   and takes priority server-side — but its absence is the normal case here,
+   not a failure; `client_session_id` alone is sufficient. If the lookup
+   misses entirely, fall back to plain `load_handoff({ project_id, session_id })`
+   and say so. Either way, if it returns a handoff, treat its 5 sections as the
+   authoritative summary of where the work stands; reconcile against the turns
+   from step 1 (turns are newer if they post-date the handoff).
 
 3. **Re-emit the Tier-1 contract.** The grāmatr behavioral contract (identity,
    hard gates, always-on directives) is injected fresh by the SessionStart /
@@ -151,3 +198,15 @@ a new session). Use the `project_id` resolved in Step 1.
 - The statusline file (`.gramatr/statusline.txt`) is NOT an agent concern here —
   it is fetched over REST by `bin/statusline.js` per render; agent-side writes to
   it are an anti-pattern. This command never touches it.
+- No bespoke local pointer file (Step 1.2 / Step 3.2 pass `client_session_id`
+  instead — read-only, from the hooks' own existing `.gramatr/session.json`).
+  This is a server-side fix (#6790), not a client-side workaround:
+  `save_handoff`/`load_handoff` fan every handoff out to Redis keyed on
+  `(applicationId, userId, projectId)`, a `:<session_id>` variant, AND now a
+  `:client:<client_session_id>` variant (all TTL'd, read-through in front of
+  Postgres — see `gramatr-handoff.ts`) — so each unique session working a
+  project gets its own store entry, and ANY client — web, another harness, no
+  filesystem at all — gets the same disambiguation for free via plain
+  `load_handoff(project_id, session_id, client_session_id)`. No new file for
+  this command to write, guard against symlinks, or worry about worktree
+  placement for.

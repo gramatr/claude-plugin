@@ -145,7 +145,7 @@ function getConfigPath() {
 }
 function readConfig() {
   try {
-    const raw = (0, import_node_fs7.readFileSync)(getConfigPath(), "utf8");
+    const raw = (0, import_node_fs8.readFileSync)(getConfigPath(), "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -154,8 +154,8 @@ function readConfig() {
 function writeConfig(config) {
   try {
     const path2 = getConfigPath();
-    (0, import_node_fs7.writeFileSync)(path2, JSON.stringify(config, null, 2), { mode: 384 });
-    (0, import_node_fs7.chmodSync)(path2, 384);
+    (0, import_node_fs8.writeFileSync)(path2, JSON.stringify(config, null, 2), { mode: 384 });
+    (0, import_node_fs8.chmodSync)(path2, 384);
   } catch {
   }
 }
@@ -285,11 +285,11 @@ function getServerUrl() {
   const config = readConfig();
   return (config?.server_url || "https://api.gramatr.com").replace(/\/mcp\/?$/, "");
 }
-var import_node_fs7, import_node_path8, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress, renewSingleFlight;
+var import_node_fs8, import_node_path8, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress, renewSingleFlight;
 var init_auth = __esm({
   "dist/server/auth.js"() {
     "use strict";
-    import_node_fs7 = require("node:fs");
+    import_node_fs8 = require("node:fs");
     import_node_path8 = require("node:path");
     init_config_runtime();
     init_token_stale();
@@ -770,7 +770,7 @@ var init_tool_envelope = __esm({
 
 // ../proof-crypto/dist/index.js
 function generateEd25519KeyPair() {
-  const { privateKey, publicKey } = (0, import_node_crypto.generateKeyPairSync)("ed25519");
+  const { privateKey, publicKey } = (0, import_node_crypto2.generateKeyPairSync)("ed25519");
   return { privateKey, publicKey };
 }
 function toPublicJwk(publicKey) {
@@ -782,13 +782,13 @@ function toPublicJwk(publicKey) {
 }
 function jwkThumbprint(jwk) {
   const canonical = `{"crv":"${jwk.crv}","kty":"${jwk.kty}","x":"${jwk.x}"}`;
-  return (0, import_node_crypto.createHash)("sha256").update(canonical).digest("base64url");
+  return (0, import_node_crypto2.createHash)("sha256").update(canonical).digest("base64url");
 }
-var import_node_crypto;
+var import_node_crypto2;
 var init_dist = __esm({
   "../proof-crypto/dist/index.js"() {
     "use strict";
-    import_node_crypto = require("node:crypto");
+    import_node_crypto2 = require("node:crypto");
   }
 });
 
@@ -822,16 +822,16 @@ function normalizeRestTokenBlock(block) {
 }
 function writeSessionToken(projectDir, file) {
   const dir = (0, import_node_path9.join)(projectDir, GRAMATR_DIR2);
-  if (!(0, import_node_fs8.existsSync)(dir)) {
-    (0, import_node_fs8.mkdirSync)(dir, { recursive: true, mode: 448 });
+  if (!(0, import_node_fs9.existsSync)(dir)) {
+    (0, import_node_fs9.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
   const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs8.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs8.renameSync)(tmp, dest);
+  (0, import_node_fs9.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs9.renameSync)(tmp, dest);
   try {
-    (0, import_node_fs8.chmodSync)(dest, 384);
+    (0, import_node_fs9.chmodSync)(dest, 384);
   } catch {
   }
 }
@@ -842,11 +842,11 @@ function persistBootstrapRestToken(projectDir, block) {
   writeSessionToken(projectDir, file);
   return true;
 }
-var import_node_fs8, import_node_path9, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS;
+var import_node_fs9, import_node_path9, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
-    import_node_fs8 = require("node:fs");
+    import_node_fs9 = require("node:fs");
     import_node_path9 = require("node:path");
     init_dpop_key();
     GRAMATR_DIR2 = ".gramatr";
@@ -910,14 +910,14 @@ function windowsWrite(secret) {
 function fileWrite(record) {
   try {
     const dir = (0, import_node_path11.join)(getHomeDir(), ".gramatr");
-    if (!(0, import_node_fs10.existsSync)(dir))
-      (0, import_node_fs10.mkdirSync)(dir, { recursive: true, mode: 448 });
+    if (!(0, import_node_fs11.existsSync)(dir))
+      (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getFileBackendPath();
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs10.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
-    (0, import_node_fs10.renameSync)(tmp, dest);
+    (0, import_node_fs11.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs11.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs10.chmodSync)(dest, 384);
+      (0, import_node_fs11.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -950,15 +950,15 @@ function writeMintCredential(record) {
     return "windows";
   return fileWrite(payload) ? "file" : "none";
 }
-var import_node_child_process4, import_node_fs10, import_node_path11, spawnImpl, platformImpl, KEYRING_SERVICE, KEYRING_ACCOUNT, FILE_BACKEND_NAME, KEYRING_CMD_TIMEOUT_MS;
+var import_node_child_process5, import_node_fs11, import_node_path11, spawnImpl, platformImpl, KEYRING_SERVICE, KEYRING_ACCOUNT, FILE_BACKEND_NAME, KEYRING_CMD_TIMEOUT_MS;
 var init_mint_credential_store = __esm({
   "dist/hooks/lib/mint-credential-store.js"() {
     "use strict";
-    import_node_child_process4 = require("node:child_process");
-    import_node_fs10 = require("node:fs");
+    import_node_child_process5 = require("node:child_process");
+    import_node_fs11 = require("node:fs");
     import_node_path11 = require("node:path");
     init_config_runtime();
-    spawnImpl = import_node_child_process4.spawnSync;
+    spawnImpl = import_node_child_process5.spawnSync;
     platformImpl = null;
     KEYRING_SERVICE = "gramatr-mint-credential";
     KEYRING_ACCOUNT = "gramatr";
@@ -1069,14 +1069,14 @@ function windowsRead() {
 function fileWrite2(record) {
   try {
     const dir = (0, import_node_path12.join)(getHomeDir(), ".gramatr");
-    if (!(0, import_node_fs11.existsSync)(dir))
-      (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
+    if (!(0, import_node_fs12.existsSync)(dir))
+      (0, import_node_fs12.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getFileBackendPath2();
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs11.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
-    (0, import_node_fs11.renameSync)(tmp, dest);
+    (0, import_node_fs12.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs12.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs11.chmodSync)(dest, 384);
+      (0, import_node_fs12.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -1087,9 +1087,9 @@ function fileWrite2(record) {
 function fileRead() {
   try {
     const dest = getFileBackendPath2();
-    if (!(0, import_node_fs11.existsSync)(dest))
+    if (!(0, import_node_fs12.existsSync)(dest))
       return null;
-    const raw = (0, import_node_fs11.readFileSync)(dest, "utf8").trim();
+    const raw = (0, import_node_fs12.readFileSync)(dest, "utf8").trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
@@ -1116,8 +1116,8 @@ function nativeBackend2() {
   }
 }
 function reconstructDeviceKeyPair(privateJwk) {
-  const privateKey = (0, import_node_crypto2.createPrivateKey)({ key: privateJwk, format: "jwk" });
-  const publicKey = (0, import_node_crypto2.createPublicKey)(privateKey);
+  const privateKey = (0, import_node_crypto3.createPrivateKey)({ key: privateJwk, format: "jwk" });
+  const publicKey = (0, import_node_crypto3.createPublicKey)(privateKey);
   const publicJwk = toPublicJwk(publicKey);
   const thumbprint = jwkThumbprint(publicJwk);
   return { privateKey, publicKey, publicJwk, thumbprint };
@@ -1177,17 +1177,17 @@ function getOrCreateDeviceKeyPair() {
   const backend = writeDeviceKey(keyPair);
   return { keyPair, backend: toBackendKind(backend) };
 }
-var import_node_child_process5, import_node_fs11, import_node_path12, import_node_crypto2, spawnImpl2, platformImpl2, KEYRING_SERVICE2, KEYRING_ACCOUNT2, FILE_BACKEND_NAME2, KEYRING_CMD_TIMEOUT_MS2;
+var import_node_child_process6, import_node_fs12, import_node_path12, import_node_crypto3, spawnImpl2, platformImpl2, KEYRING_SERVICE2, KEYRING_ACCOUNT2, FILE_BACKEND_NAME2, KEYRING_CMD_TIMEOUT_MS2;
 var init_device_key_store = __esm({
   "dist/hooks/lib/device-key-store.js"() {
     "use strict";
-    import_node_child_process5 = require("node:child_process");
-    import_node_fs11 = require("node:fs");
+    import_node_child_process6 = require("node:child_process");
+    import_node_fs12 = require("node:fs");
     import_node_path12 = require("node:path");
-    import_node_crypto2 = require("node:crypto");
+    import_node_crypto3 = require("node:crypto");
     init_config_runtime();
     init_device_key();
-    spawnImpl2 = import_node_child_process5.spawnSync;
+    spawnImpl2 = import_node_child_process6.spawnSync;
     platformImpl2 = null;
     KEYRING_SERVICE2 = "gramatr-device-key";
     KEYRING_ACCOUNT2 = "gramatr";
@@ -1197,7 +1197,7 @@ var init_device_key_store = __esm({
 });
 
 // dist/bin/init-identity.js
-var import_node_fs13 = require("node:fs");
+var import_node_fs14 = require("node:fs");
 var import_node_path14 = require("node:path");
 
 // dist/user-config.js
@@ -2554,14 +2554,136 @@ function persistBootstrapSessionState(projectDir, input) {
   }
 }
 
-// dist/hooks/lib/bootstrap-git-remote.js
+// dist/hooks/lib/process-pin.js
+var import_node_crypto = require("node:crypto");
 var import_node_child_process2 = require("node:child_process");
 var import_node_fs5 = require("node:fs");
+var import_node_os = require("node:os");
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs5.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs5.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs5.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process2.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs5.readFileSync)("/etc/machine-id", "utf8");
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    const raw = `${host}|${ancestor.pid}|${ancestor.starttime}`;
+    const value = `pin-${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return { value, pid: ancestor.pid, startTime: ancestor.starttime, host };
+  } catch {
+    return null;
+  }
+}
+
+// dist/hooks/lib/bootstrap-git-remote.js
+var import_node_child_process3 = require("node:child_process");
+var import_node_fs6 = require("node:fs");
 var import_node_path6 = require("node:path");
 init_config_runtime();
 function resolveBootstrapGitRemote(projectDir) {
   try {
-    const proj = JSON.parse((0, import_node_fs5.readFileSync)((0, import_node_path6.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    const proj = JSON.parse((0, import_node_fs6.readFileSync)((0, import_node_path6.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     if (typeof proj.git_remote === "string" && proj.git_remote)
       return proj.git_remote;
   } catch {
@@ -2575,7 +2697,7 @@ function resolveBootstrapGitRemote(projectDir) {
     }
   }
   try {
-    const ctx = JSON.parse((0, import_node_fs5.readFileSync)((0, import_node_path6.join)(projectDir, ".gramatr", "git-context.json"), "utf8"));
+    const ctx = JSON.parse((0, import_node_fs6.readFileSync)((0, import_node_path6.join)(projectDir, ".gramatr", "git-context.json"), "utf8"));
     if (typeof ctx.remote_url === "string" && ctx.remote_url)
       return ctx.remote_url;
   } catch {
@@ -2593,7 +2715,7 @@ function resolveBootstrapGitRemote(projectDir) {
     ]) {
       delete gitEnv[key];
     }
-    const out = (0, import_node_child_process2.execFileSync)("git", ["remote", "get-url", "origin"], {
+    const out = (0, import_node_child_process3.execFileSync)("git", ["remote", "get-url", "origin"], {
       cwd: projectDir,
       env: gitEnv,
       encoding: "utf8",
@@ -2607,7 +2729,7 @@ function resolveBootstrapGitRemote(projectDir) {
 }
 
 // dist/hooks/lib/session-root-registry.js
-var import_node_fs6 = require("node:fs");
+var import_node_fs7 = require("node:fs");
 var import_node_path7 = require("node:path");
 init_config_runtime();
 var DEFAULT_REGISTRY_TTL_DAYS = 14;
@@ -2638,8 +2760,8 @@ function writeSessionRoot(sessionId, entry) {
     return false;
   try {
     const dir = registryDir();
-    if (!(0, import_node_fs6.existsSync)(dir))
-      (0, import_node_fs6.mkdirSync)(dir, { recursive: true, mode: 448 });
+    if (!(0, import_node_fs7.existsSync)(dir))
+      (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const prev = readRaw(dest);
     const createdAt = prev && typeof prev.created_at === "string" && prev.created_at ? prev.created_at : now;
@@ -2653,10 +2775,10 @@ function writeSessionRoot(sessionId, entry) {
     if (entry.client_type)
       payload.client_type = entry.client_type;
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs6.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs6.renameSync)(tmp, dest);
+    (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs7.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs6.chmodSync)(dest, 384);
+      (0, import_node_fs7.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -2666,9 +2788,9 @@ function writeSessionRoot(sessionId, entry) {
 }
 function readRaw(path2) {
   try {
-    if (!(0, import_node_fs6.existsSync)(path2))
+    if (!(0, import_node_fs7.existsSync)(path2))
       return null;
-    return JSON.parse((0, import_node_fs6.readFileSync)(path2, "utf8"));
+    return JSON.parse((0, import_node_fs7.readFileSync)(path2, "utf8"));
   } catch {
     return null;
   }
@@ -2686,15 +2808,15 @@ function readSessionRoot(sessionId) {
     const lastSeen = Date.parse(raw.last_seen_at);
     if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
       try {
-        (0, import_node_fs6.rmSync)(path2, { force: true });
+        (0, import_node_fs7.rmSync)(path2, { force: true });
       } catch {
       }
       return null;
     }
   }
-  if (!(0, import_node_fs6.existsSync)(raw.project_root)) {
+  if (!(0, import_node_fs7.existsSync)(raw.project_root)) {
     try {
-      (0, import_node_fs6.rmSync)(path2, { force: true });
+      (0, import_node_fs7.rmSync)(path2, { force: true });
     } catch {
     }
     return null;
@@ -2716,19 +2838,19 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
   };
   try {
     const dir = registryDebugDir();
-    if (!(0, import_node_fs6.existsSync)(dir))
-      (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
+    if (!(0, import_node_fs7.existsSync)(dir))
+      (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
     const jsonlPath = (0, import_node_path7.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs6.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs6.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs7.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs7.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > REGISTRY_SAMPLE_CAP) {
       existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
     }
-    (0, import_node_fs6.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs7.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -2751,7 +2873,7 @@ function resolveSessionRoot(opts) {
 }
 
 // dist/hooks/lib/resolve-home.js
-var import_node_child_process3 = require("node:child_process");
+var import_node_child_process4 = require("node:child_process");
 
 // dist/hooks/lib/git-remote-parser.js
 function parseGitRemote(url) {
@@ -2845,7 +2967,7 @@ function defaultGetGitRemote(projectDir) {
   if (fromConfig)
     return fromConfig;
   try {
-    const out = (0, import_node_child_process3.spawnSync)("git", ["remote", "get-url", "origin"], {
+    const out = (0, import_node_child_process4.spawnSync)("git", ["remote", "get-url", "origin"], {
       cwd: projectDir,
       encoding: "utf8"
     }).stdout?.trim();
@@ -2967,7 +3089,7 @@ async function defaultResolveProject(args) {
 init_session_rest_token();
 
 // dist/hooks/lib/telemetry-token.js
-var import_node_fs9 = require("node:fs");
+var import_node_fs10 = require("node:fs");
 var import_node_path10 = require("node:path");
 var GRAMATR_DIR3 = ".gramatr";
 var TELEMETRY_TOKEN_FILE = ".telemetry-token";
@@ -2991,14 +3113,14 @@ function normalizeTelemetryTokenBlock(block) {
 }
 function writeTelemetryToken(projectDir, file) {
   const dir = (0, import_node_path10.join)(projectDir, GRAMATR_DIR3);
-  if (!(0, import_node_fs9.existsSync)(dir)) {
-    (0, import_node_fs9.mkdirSync)(dir, { recursive: true, mode: 448 });
+  if (!(0, import_node_fs10.existsSync)(dir)) {
+    (0, import_node_fs10.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
   const dest = getTelemetryTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs9.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs9.renameSync)(tmp, dest);
+  (0, import_node_fs10.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs10.renameSync)(tmp, dest);
 }
 function persistBootstrapTelemetryToken(projectDir, block) {
   const file = normalizeTelemetryTokenBlock(block);
@@ -3074,19 +3196,19 @@ function resolveClientTypeArg(args = []) {
 }
 
 // dist/hooks/lib/credential-file-mode.js
-var import_node_fs12 = require("node:fs");
+var import_node_fs13 = require("node:fs");
 var import_node_path13 = require("node:path");
 var CREDENTIAL_FILE_MODE = 384;
 function ensureFileMode0600(path2) {
   try {
-    if (!(0, import_node_fs12.existsSync)(path2))
+    if (!(0, import_node_fs13.existsSync)(path2))
       return false;
-    const st = (0, import_node_fs12.statSync)(path2);
+    const st = (0, import_node_fs13.statSync)(path2);
     if (!st.isFile())
       return false;
     if ((st.mode & 511) === CREDENTIAL_FILE_MODE)
       return false;
-    (0, import_node_fs12.chmodSync)(path2, CREDENTIAL_FILE_MODE);
+    (0, import_node_fs13.chmodSync)(path2, CREDENTIAL_FILE_MODE);
     return true;
   } catch {
     return false;
@@ -3104,13 +3226,13 @@ function stripSecretEnvKeysFromClaudeSettings(homeDir) {
   try {
     const dir = (0, import_node_path13.join)(homeDir, ".claude");
     const target = (0, import_node_path13.join)(dir, "settings.json");
-    if (!(0, import_node_fs12.existsSync)(target))
+    if (!(0, import_node_fs13.existsSync)(target))
       return removed;
-    if (!(0, import_node_fs12.statSync)(target).isFile())
+    if (!(0, import_node_fs13.statSync)(target).isFile())
       return removed;
     let settings;
     try {
-      const parsed = JSON.parse((0, import_node_fs12.readFileSync)(target, "utf8"));
+      const parsed = JSON.parse((0, import_node_fs13.readFileSync)(target, "utf8"));
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
         return removed;
       settings = parsed;
@@ -3128,13 +3250,13 @@ function stripSecretEnvKeysFromClaudeSettings(homeDir) {
     }
     if (removed.length === 0)
       return removed;
-    (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
+    (0, import_node_fs13.mkdirSync)(dir, { recursive: true });
     const tmp = (0, import_node_path13.join)(dir, `settings.json.tmp.${process.pid}`);
-    (0, import_node_fs12.writeFileSync)(tmp, JSON.stringify(settings, null, 2) + "\n", {
+    (0, import_node_fs13.writeFileSync)(tmp, JSON.stringify(settings, null, 2) + "\n", {
       encoding: "utf8",
       mode: CREDENTIAL_FILE_MODE
     });
-    (0, import_node_fs12.renameSync)(tmp, target);
+    (0, import_node_fs13.renameSync)(tmp, target);
     return removed;
   } catch {
     return [];
@@ -3168,7 +3290,7 @@ function getToken2() {
     return envToken;
   if (PLUGIN_DATA_DIR) {
     try {
-      const cfg = JSON.parse((0, import_node_fs13.readFileSync)((0, import_node_path14.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs14.readFileSync)((0, import_node_path14.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
@@ -3176,7 +3298,7 @@ function getToken2() {
   }
   try {
     const credFile = (0, import_node_path14.resolve)(HOME_DIR, ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs13.readFileSync)(credFile, "utf8"));
+    const creds = JSON.parse((0, import_node_fs14.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -3385,7 +3507,7 @@ async function main() {
     writeSessionRoot(clientSessionId, { project_root: PROJECT_DIR, client_type: CLIENT_TYPE });
   }
   try {
-    (0, import_node_fs13.unlinkSync)((0, import_node_path14.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json"));
+    (0, import_node_fs14.unlinkSync)((0, import_node_path14.join)(PROJECT_DIR, ".gramatr", "ctx-tokens.json"));
   } catch {
   }
   const cached = readCachedUserIdentity();
@@ -3413,7 +3535,8 @@ async function main() {
     if (homed)
       effectivePayload = { ...payload, gramatr_project_id: homed };
   }
-  writeSessionJson(effectivePayload, clientSessionId, hookModel);
+  const processPin = getProcessPin();
+  writeSessionJson(effectivePayload, processPin?.value ?? clientSessionId, hookModel);
   if (clientSessionId && effectivePayload.gramatr_project_id) {
     writeSessionRoot(clientSessionId, {
       project_root: PROJECT_DIR,

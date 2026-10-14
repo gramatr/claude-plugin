@@ -2533,6 +2533,7 @@ init_session_rest_token();
 init_mint_credential_store();
 init_device_key();
 init_device_key_store();
+var SESSION_REST_TOKEN_PREFIX = "gmtr_sess_";
 var TOKEN_FILE = "token.json";
 var MINT_TIMEOUT_MS = 3e3;
 var PROXY_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
@@ -2604,6 +2605,8 @@ function normalizeMintedToken(block) {
     return null;
   const { token, expires_at, issued_at } = block;
   if (typeof token !== "string" || token.length === 0)
+    return null;
+  if (token.startsWith(SESSION_REST_TOKEN_PREFIX))
     return null;
   const rec = { token };
   if (typeof issued_at === "string" && issued_at.length > 0)
@@ -2694,6 +2697,9 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
     }
     const minted = normalizeMintedToken(body.rest_token);
     if (!minted) {
+      const rotated2 = normalizeRotatedCredential(body.mint_credential);
+      if (rotated2)
+        writeMintCredential(rotated2);
       return { status: "error" };
     }
     writeProxyToken(dataDir, minted);
@@ -2735,8 +2741,8 @@ function extractEnvelopeErrorCode(response) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.35.55") {
-      return "0.35.55";
+    if ("0.35.56") {
+      return "0.35.56";
     }
   } catch {
   }
@@ -2882,8 +2888,14 @@ async function pollDeviceFlowOnce(flow) {
   if (pollRes.ok && typeof pollPayload.access_token === "string") {
     const accessToken = pollPayload.access_token;
     if (PLUGIN_DATA_DIR) {
-      (0, import_node_fs7.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
-      (0, import_node_fs7.writeFileSync)((0, import_node_path7.join)(PLUGIN_DATA_DIR, "token.json"), JSON.stringify({ token: accessToken }, null, 2) + "\n", "utf8");
+      const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+      const expiresInSeconds = typeof pollPayload.expires_in === "number" ? pollPayload.expires_in : 172800;
+      const expiresAtIso = new Date(Date.now() + expiresInSeconds * 1e3).toISOString();
+      writeProxyToken(PLUGIN_DATA_DIR, {
+        token: accessToken,
+        issued_at: nowIso,
+        expires_at: expiresAtIso
+      });
     }
     inFlightDeviceFlow = void 0;
     process.stderr.write("gr\u0101matr: Authenticated successfully.\n");
