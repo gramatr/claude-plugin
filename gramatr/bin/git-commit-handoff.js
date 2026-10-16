@@ -2490,7 +2490,8 @@ var init_session_rest_token = __esm({
 // dist/bin/git-commit-handoff.js
 var git_commit_handoff_exports = {};
 __export(git_commit_handoff_exports, {
-  main: () => main
+  main: () => main,
+  runGitCommitHandoff: () => runGitCommitHandoff
 });
 module.exports = __toCommonJS(git_commit_handoff_exports);
 init_session_rest_token();
@@ -2581,6 +2582,116 @@ function resolveProjectDir(opts = {}) {
     return findProjectRoot();
   })();
   return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
+}
+var CORE_FILE = "project.json";
+var RUNTIME_FILE = "runtime.json";
+function getStatePaths(projectDir) {
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
+  return {
+    core: (0, import_node_path5.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path5.join)(dir, RUNTIME_FILE)
+  };
+}
+var SCHEMA_VERSION = 1;
+function readJson(filePath) {
+  try {
+    if (!(0, import_node_fs5.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_node_fs5.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function migrateCore(core) {
+  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
+    return { ...core, schema_version: SCHEMA_VERSION };
+  }
+  return core;
+}
+function isNewShapeCore(raw) {
+  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
+}
+function legacyCoreIdentity(projectDir) {
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
+  const legacyProject = readJson((0, import_node_path5.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path5.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path5.join)(dir, "git-context.json"));
+  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
+  if (!project_id)
+    return null;
+  const project = {
+    project_id,
+    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
+  };
+  if (legacySettings?.project_entity_id) {
+    project.project_entity_id = legacySettings.project_entity_id;
+  }
+  if (legacySettings?.project_name) {
+    project.display_name = legacySettings.project_name;
+  }
+  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
+    project.previously_known_as = legacySettings.previously_known_as;
+  }
+  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
+  const drift = git_remote ? { git_remote } : {};
+  return { project, drift };
+}
+function legacyActiveSession(projectDir) {
+  const legacySession = readJson((0, import_node_path5.join)(projectDir, GRAMATR_DIR2, "session.json"));
+  if (!legacySession?.session_id)
+    return void 0;
+  const active = { session_id: legacySession.session_id };
+  if (legacySession.client_session_id)
+    active.client_session_id = legacySession.client_session_id;
+  if (legacySession.interaction_id)
+    active.interaction_id = legacySession.interaction_id;
+  if (legacySession.client_type)
+    active.client_type = legacySession.client_type;
+  if (legacySession.written_at)
+    active.written_at = legacySession.written_at;
+  return active;
+}
+function synthesizeFromLegacy(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
+  const state = {
+    schema_version: SCHEMA_VERSION,
+    project: identity.project,
+    drift: identity.drift,
+    recent_sessions: []
+  };
+  const active = legacyActiveSession(projectDir);
+  if (active)
+    state.active_session = active;
+  return state;
+}
+function readProjectState(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const rawCore = readJson(paths.core);
+  const runtime = readJson(paths.runtime) ?? {};
+  if (isNewShapeCore(rawCore)) {
+    const core = migrateCore(rawCore);
+    return {
+      schema_version: core.schema_version,
+      project: core.project,
+      drift: core.drift ?? {},
+      active_session: runtime.active_session,
+      recent_sessions: runtime.recent_sessions ?? [],
+      last_handoff: runtime.last_handoff,
+      statusline_cache: runtime.statusline_cache
+    };
+  }
+  const legacy = synthesizeFromLegacy(projectDir);
+  if (!legacy)
+    return null;
+  return {
+    ...legacy,
+    active_session: runtime.active_session ?? legacy.active_session,
+    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
+    last_handoff: runtime.last_handoff ?? legacy.last_handoff,
+    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
+  };
 }
 
 // dist/hooks/lib/session-root-registry.js
@@ -2743,42 +2854,48 @@ function isSuccessfulCommit(response) {
   }
   return true;
 }
+async function runGitCommitHandoff(input, fetchImpl = fetch, projectDir) {
+  try {
+    if (input.tool_name !== "Bash")
+      return { status: "skipped" };
+    const command = input.tool_input?.command ?? "";
+    if (!isRealCommitCommand(command))
+      return { status: "skipped" };
+    if (!isSuccessfulCommit(input.tool_response))
+      return { status: "skipped" };
+    const dir = projectDir ?? resolveSessionRoot({ sessionId: input.session_id, clientType: "claude-code" });
+    const token = await resolveUsableSessionToken(dir, fetchImpl);
+    if (!token)
+      return { status: "no_token" };
+    let clientSessionId;
+    try {
+      clientSessionId = readProjectState(dir)?.active_session?.client_session_id;
+    } catch {
+    }
+    const url = `${apiV1Base(token.base_url)}/auto-save-handoff`;
+    await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...bearerHeader(token),
+        ...sessionHeader(token)
+      },
+      body: JSON.stringify({
+        client_type: "claude-code",
+        reason: "git_commit",
+        ...clientSessionId ? { client_session_id: clientSessionId } : {}
+      }),
+      signal: AbortSignal.timeout(HANDOFF_TIMEOUT_MS)
+    });
+    return { status: "posted" };
+  } catch {
+    return { status: "skipped" };
+  }
+}
 async function main() {
   const input = await readHookStdin();
   process.stdout.write(JSON.stringify({ continue: true }));
-  void (async () => {
-    try {
-      if (input.tool_name !== "Bash")
-        return;
-      const command = input.tool_input?.command ?? "";
-      if (!isRealCommitCommand(command))
-        return;
-      if (!isSuccessfulCommit(input.tool_response))
-        return;
-      const projectDir = resolveSessionRoot({
-        sessionId: input.session_id,
-        clientType: "claude-code"
-      });
-      const token = await resolveUsableSessionToken(projectDir);
-      if (!token)
-        return;
-      const url = `${apiV1Base(token.base_url)}/auto-save-handoff`;
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...bearerHeader(token),
-          ...sessionHeader(token)
-        },
-        body: JSON.stringify({
-          client_type: "claude-code",
-          reason: "git_commit"
-        }),
-        signal: AbortSignal.timeout(HANDOFF_TIMEOUT_MS)
-      });
-    } catch {
-    }
-  })();
+  void runGitCommitHandoff(input);
 }
 if (process.env.GRAMATR_GIT_COMMIT_HANDOFF_NO_AUTOSTART !== "1") {
   main().catch(() => {
@@ -2786,5 +2903,6 @@ if (process.env.GRAMATR_GIT_COMMIT_HANDOFF_NO_AUTOSTART !== "1") {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  main
+  main,
+  runGitCommitHandoff
 });
