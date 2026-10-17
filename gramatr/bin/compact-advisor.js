@@ -321,34 +321,6 @@ async function main() {
       advisory = computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto, modelKnown);
     }
   }
-  const reflectionFile = (0, import_node_path3.join)(PROJECT_DIR, ".gramatr", "reflection-due.json");
-  if ((0, import_node_fs2.existsSync)(reflectionFile)) {
-    let stale = false;
-    try {
-      const flag = JSON.parse((0, import_node_fs2.readFileSync)(reflectionFile, "utf8"));
-      const age = flag.written_at ? Date.now() - new Date(flag.written_at).getTime() : Infinity;
-      stale = age > 5 * 60 * 1e3;
-    } catch {
-      stale = true;
-    }
-    if (!stale) {
-      try {
-        (0, import_node_fs2.unlinkSync)(reflectionFile);
-      } catch {
-      }
-      const reflectionAdvisory = `[gr\u0101matr: MANDATORY END-OF-TURN \u2014 Before completing your response, call mcp__plugin_gramatr_gramatr__classification_feedback and mcp__plugin_gramatr_gramatr__save_reflection. These feed the classifier flywheel. The directives.required_actions in this packet specify the exact arguments needed.]`;
-      if (advisory) {
-        advisory = advisory + "\n" + reflectionAdvisory;
-      } else {
-        advisory = reflectionAdvisory;
-      }
-    } else {
-      try {
-        (0, import_node_fs2.unlinkSync)(reflectionFile);
-      } catch {
-      }
-    }
-  }
   if (!advisory) {
     process.stdout.write("{}");
     return;

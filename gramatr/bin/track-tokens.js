@@ -125,7 +125,6 @@ function writeCtxTokens(projectDir, sessionId, ctxTokensUsed) {
   if (ctxPath) {
     (0, import_node_fs2.writeFileSync)(ctxPath, JSON.stringify({ ctx_tokens_used: ctxTokensUsed, updated_at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n", "utf8");
   }
-  (0, import_node_fs2.writeFileSync)((0, import_node_path3.join)(outDir, "reflection-due.json"), JSON.stringify({ written_at: (/* @__PURE__ */ new Date()).toISOString() }) + "\n", "utf8");
 }
 async function runTrackTokens(transcriptPath, projectDir, sessionId) {
   if (!transcriptPath)
