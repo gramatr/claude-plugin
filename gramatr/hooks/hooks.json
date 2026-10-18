@@ -107,6 +107,14 @@
               "${CLAUDE_PLUGIN_ROOT}/bin/statusline-selfheal.js"
             ],
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/session-contract.js"
+            ],
+            "timeout": 5
           }
         ]
       }
