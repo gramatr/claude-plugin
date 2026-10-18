@@ -1,5 +1,5 @@
 ---
-description: Dispatch verbs — status, update, handoff save|load, project, statusline, help. Single entry point for grāmatr client-side actions.
+description: Dispatch verbs — status, update, handoff save|load, project, statusline, setup, help. Single entry point for grāmatr client-side actions.
 ---
 
 # /gramatr
@@ -34,6 +34,7 @@ prefix shown in the help table):
 - `/gramatr:gramatr status` → verb is `status`
 - `/gramatr:gramatr project list` → verb is `project`, sub-arg is `list`
 - `/gramatr:gramatr project fix gramatr/gramatr` → verb is `project`, sub-arg is `fix gramatr/gramatr`
+- `/gramatr:gramatr setup cursor` → verb is `setup`, sub-arg is `cursor`
 - `/gramatr:gramatr whoami` → verb is `whoami` → NOT a recognized dispatcher
   verb (#4855) → redirects to the standalone `/gramatr:whoami` command
 
@@ -55,6 +56,7 @@ Print this verb table verbatim, then stop:
 /gramatr:gramatr handoff save|load|show  → session continuity (show = render, no resume)
 /gramatr:gramatr project [list|fix]      → pin repo / list projects / rehome drifted ones
 /gramatr:gramatr statusline              → toggle the statusLine
+/gramatr:gramatr setup cursor            → wire grāmatr's sessionStart hook into Cursor
 ```
 
 `whoami`, `recall`, `feedback`, `reflect`, `authenticate`, and `login` are
@@ -533,6 +535,44 @@ If the bar is blank, the current project may not yet have a
 prompt). The bundled `bin/statusline.js` reads `session_id` from that file and
 fetches `GET /api/v1/statusline` (token-authenticated when `.gramatr/.session` exists, legacy `/:session_id` fallback otherwise) on each render — no agent writes
 are involved.
+
+### `setup`
+
+Configures a secondary client integration that has no plugin-marketplace
+install path of its own. The sub-argument names the target. Only `cursor`
+is supported today.
+
+If no sub-argument (or an unrecognized one) was given, print:
+
+> Usage: `/gramatr:gramatr setup cursor`
+
+#### `cursor` (#6844)
+
+Writes/merges a `sessionStart` hook entry into `~/.cursor/hooks.json`,
+pointing at this install's bundled `cursor-session-contract.js` — so Cursor
+delivers grāmatr's full-substrate guidance fresh on every conversation
+instead of relying on a one-time MCP-connection system prompt. Idempotent:
+safe to re-run after a plugin upgrade (replaces a prior gramatr entry in
+place rather than duplicating it) and preserves every other hook the user
+already has configured.
+
+Run:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/bin/setup.js" cursor
+```
+
+Report the command's own stdout/stderr line verbatim — it already states
+whether `~/.cursor/hooks.json` was updated or was already current. Do not
+restart anything; Cursor picks up `hooks.json` changes on save per Cursor's
+own hook-reload behavior.
+
+**Does NOT yet deliver:** per-turn (every-message) context — Cursor's
+`beforeSubmitPrompt` hook can only block a prompt, not inject context
+(confirmed against cursor.com/docs/agent/hooks), so `route_request` still
+has to be called manually each turn. This verb only fixes session-start
+delivery; say so if the user asks why a mid-session preference isn't
+sticking automatically.
 
 ### unknown verb
 
