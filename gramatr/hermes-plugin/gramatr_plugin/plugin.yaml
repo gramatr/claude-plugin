@@ -1,0 +1,22 @@
+name: gramatr
+version: 0.35.67
+description: >-
+  grāmatr lifecycle plugin for Hermes Agent (Nous Research) — registers
+  Hermes session-lifecycle and directive hooks so grāmatr can inject live
+  decision-routing context. Unit 1 wires the hooks as log-only stubs; live
+  gateway delivery arrives in later units.
+provides_hooks:
+  - on_session_start
+  - on_session_end
+  - on_session_finalize
+  - on_session_reset
+  - on_session_delete
+  - pre_tool_call
+  - pre_llm_call
+  - pre_verify
+  - pre_gateway_dispatch
+# The fields below are documented-but-unconfirmed-in-practice optionals; left
+# empty for this stub-only unit.
+requires_env: []
+capabilities: []
+update_url: https://github.com/gramatr/hermes-plugin

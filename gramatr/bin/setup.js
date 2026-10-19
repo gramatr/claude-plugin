@@ -21,9 +21,11 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var setup_exports = {};
 __export(setup_exports, {
   mergeCursorHooksFile: () => mergeCursorHooksFile,
+  resolveHermesPluginSource: () => resolveHermesPluginSource,
   runSetup: () => runSetup
 });
 module.exports = __toCommonJS(setup_exports);
+var import_node_child_process = require("node:child_process");
 var import_node_fs = require("node:fs");
 var import_node_path2 = require("node:path");
 
@@ -193,6 +195,9 @@ async function runSetup(args = []) {
   if (target === "cursor") {
     return runCursorSetup(args.slice(1));
   }
+  if (target === "hermes") {
+    return runHermesSetup(args.slice(1));
+  }
   if (target !== "codex") {
     process.stderr.write(`[gramatr] Unknown setup target: ${target}
 `);
@@ -272,8 +277,101 @@ async function runCursorSetup(_args) {
 `);
   return 0;
 }
+var HERMES_PLUGIN_NAME = "gramatr";
+var HERMES_PLUGIN_MANIFEST = "plugin.yaml";
+function isHermesCopyExcluded(srcPath) {
+  const base = (0, import_node_path2.basename)(srcPath);
+  if (base === "__pycache__" || base === ".pytest_cache")
+    return true;
+  if (base.endsWith(".pyc"))
+    return true;
+  if (/^test_.*\.py$/.test(base))
+    return true;
+  if (/_test\.py$/.test(base))
+    return true;
+  if (/\.test\.ts$/.test(base))
+    return true;
+  return false;
+}
+function resolveHermesPluginSource(argv1 = process.argv[1]) {
+  const argvBase = resolveRunningScriptDir(argv1, void 0);
+  const metaBase = resolveRunningScriptDir(void 0, import_meta.url);
+  const candidates = [];
+  for (const base of [argvBase, metaBase]) {
+    if (!base)
+      continue;
+    candidates.push((0, import_node_path2.join)(base, "hermes-plugin", "gramatr_plugin"));
+    candidates.push((0, import_node_path2.join)(base, "..", "hermes-plugin", "gramatr_plugin"));
+    candidates.push((0, import_node_path2.join)(base, "..", "..", "..", "hermes-plugin", "gramatr_plugin"));
+  }
+  for (const candidate of candidates) {
+    if ((0, import_node_fs.existsSync)((0, import_node_path2.join)(candidate, HERMES_PLUGIN_MANIFEST))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+var HERMES_CONFIG_INSTRUCTION = `[gramatr] ACTION REQUIRED \u2014 one manual step to enable per-turn (Tier 2) context.
+
+gr\u0101matr's Hermes plugin is installed and (if the hermes CLI was found) enabled.
+Tier 1 session-start context works now. For Tier 2 per-turn gateway injection,
+add the following to your Hermes config.yaml (set plugins.enabled to include
+"${HERMES_PLUGIN_NAME}" and plugins.entries.${HERMES_PLUGIN_NAME}.allow_gateway_injection: true):
+
+  plugins:
+    enabled:
+      - ${HERMES_PLUGIN_NAME}
+    entries:
+      ${HERMES_PLUGIN_NAME}:
+        allow_gateway_injection: true
+
+Until that edit is made, gr\u0101matr will NOT inject per-turn context \u2014 the Hermes
+harness refuses plugin-initiated turns unless the plugin's own entry allows it.
+(The on-disk location of Hermes's config.yaml is not yet confirmed, so gr\u0101matr
+does not write this for you \u2014 copy the snippet above into it manually.)
+`;
+function tryEnableHermesPlugin() {
+  const result = (0, import_node_child_process.spawnSync)("hermes", ["plugins", "enable", HERMES_PLUGIN_NAME], {
+    encoding: "utf8",
+    timeout: 1e4,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  if (result.error) {
+    return false;
+  }
+  return result.status === 0;
+}
+async function runHermesSetup(_args) {
+  const homeDir = getHomeDir();
+  if (!homeDir) {
+    process.stderr.write("[gramatr] Cannot resolve home directory for Hermes setup\n");
+    return 1;
+  }
+  const sourceDir = resolveHermesPluginSource();
+  if (!sourceDir) {
+    process.stderr.write("[gramatr] Cannot resolve the gr\u0101matr Hermes plugin source directory \u2014 is this running from a real plugin install or checkout?\n");
+    return 1;
+  }
+  const destDir = (0, import_node_path2.join)(homeDir, ".hermes", "plugins", HERMES_PLUGIN_NAME);
+  (0, import_node_fs.rmSync)(destDir, { recursive: true, force: true });
+  (0, import_node_fs.mkdirSync)((0, import_node_path2.dirname)(destDir), { recursive: true, mode: 448 });
+  (0, import_node_fs.cpSync)(sourceDir, destDir, {
+    recursive: true,
+    filter: (src) => !isHermesCopyExcluded(src)
+  });
+  process.stdout.write(`[gramatr] Installed gr\u0101matr Hermes plugin to ${destDir}
+`);
+  if (tryEnableHermesPlugin()) {
+    process.stdout.write("[gramatr] Enabled the plugin via `hermes plugins enable gramatr`\n");
+  } else {
+    process.stdout.write("[gramatr] Could not run `hermes plugins enable gramatr` (hermes CLI not found or returned non-zero) \u2014 enable it yourself if needed; this is not a failure\n");
+  }
+  process.stdout.write(HERMES_CONFIG_INSTRUCTION);
+  return 0;
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   mergeCursorHooksFile,
+  resolveHermesPluginSource,
   runSetup
 });
