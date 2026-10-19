@@ -134,7 +134,6 @@ function readProjectState(projectDir) {
       drift: core.drift ?? {},
       active_session: runtime.active_session,
       recent_sessions: runtime.recent_sessions ?? [],
-      last_handoff: runtime.last_handoff,
       statusline_cache: runtime.statusline_cache
     };
   }
@@ -145,7 +144,6 @@ function readProjectState(projectDir) {
     ...legacy,
     active_session: runtime.active_session ?? legacy.active_session,
     recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
-    last_handoff: runtime.last_handoff ?? legacy.last_handoff,
     statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
   };
 }

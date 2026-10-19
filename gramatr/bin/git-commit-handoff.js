@@ -106,8 +106,14 @@ var init_config_runtime = __esm({
 function currentPlatform() {
   return platformImpl ?? process.platform;
 }
-function getFileBackendPath() {
-  return (0, import_node_path.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
+function scopedKeyringService(projectId) {
+  return `${KEYRING_SERVICE}:${projectId}`;
+}
+function scopedFileBackendName(projectId) {
+  return `${FILE_BACKEND_NAME}-${projectId}`;
+}
+function getFileBackendPath(projectId) {
+  return (0, import_node_path.join)(getHomeDir(), ".gramatr", scopedFileBackendName(projectId));
 }
 function fileBackendForced() {
   return isKeyringFileOnlyFromEnv();
@@ -128,26 +134,26 @@ function runKeyringCmd(cmd, args, input) {
     return null;
   }
 }
-function macosWrite(secret) {
+function macosWrite(secret, service) {
   const res = runKeyringCmd("security", [
     "add-generic-password",
     "-a",
     KEYRING_ACCOUNT,
     "-s",
-    KEYRING_SERVICE,
+    service,
     "-U",
     "-w",
     secret
   ]);
   return res !== null;
 }
-function macosRead() {
+function macosRead(service) {
   const res = runKeyringCmd("security", [
     "find-generic-password",
     "-a",
     KEYRING_ACCOUNT,
     "-s",
-    KEYRING_SERVICE,
+    service,
     "-w"
   ]);
   if (!res)
@@ -155,24 +161,24 @@ function macosRead() {
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
 }
-function macosDelete() {
+function macosDelete(service) {
   runKeyringCmd("security", [
     "delete-generic-password",
     "-a",
     KEYRING_ACCOUNT,
     "-s",
-    KEYRING_SERVICE
+    service
   ]);
 }
-function secretToolWrite(secret) {
-  const res = runKeyringCmd("secret-tool", ["store", "--label", KEYRING_SERVICE, "service", KEYRING_SERVICE, "account", KEYRING_ACCOUNT], secret);
+function secretToolWrite(secret, service) {
+  const res = runKeyringCmd("secret-tool", ["store", "--label", service, "service", service, "account", KEYRING_ACCOUNT], secret);
   return res !== null;
 }
-function secretToolRead() {
+function secretToolRead(service) {
   const res = runKeyringCmd("secret-tool", [
     "lookup",
     "service",
-    KEYRING_SERVICE,
+    service,
     "account",
     KEYRING_ACCOUNT
   ]);
@@ -181,17 +187,17 @@ function secretToolRead() {
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
 }
-function secretToolDelete() {
+function secretToolDelete(service) {
   runKeyringCmd("secret-tool", [
     "clear",
     "service",
-    KEYRING_SERVICE,
+    service,
     "account",
     KEYRING_ACCOUNT
   ]);
 }
-function windowsWrite(secret) {
-  const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
+function windowsWrite(secret, service) {
+  const target = `${service}:${KEYRING_ACCOUNT}`;
   const res = runKeyringCmd("cmdkey", [
     `/generic:${target}`,
     `/user:${KEYRING_ACCOUNT}`,
@@ -199,8 +205,8 @@ function windowsWrite(secret) {
   ]);
   return res !== null;
 }
-function windowsRead() {
-  const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
+function windowsRead(service) {
+  const target = `${service}:${KEYRING_ACCOUNT}`;
   const script = `$ErrorActionPreference='SilentlyContinue';[void][Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime];try{$v=New-Object Windows.Security.Credentials.PasswordVault;$c=$v.Retrieve('${target}','${KEYRING_ACCOUNT}');$c.RetrievePassword();$c.Password}catch{''}`;
   const res = runKeyringCmd("powershell", ["-NoProfile", "-Command", script]);
   if (!res)
@@ -208,16 +214,15 @@ function windowsRead() {
   const out = res.stdout.trim();
   return out.length > 0 ? out : null;
 }
-function windowsDelete() {
-  const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
+function windowsDelete(service) {
+  const target = `${service}:${KEYRING_ACCOUNT}`;
   runKeyringCmd("cmdkey", [`/delete:${target}`]);
 }
-function fileWrite(record) {
+function fileWrite(record, dest) {
   try {
     const dir = (0, import_node_path.join)(getHomeDir(), ".gramatr");
     if (!(0, import_node_fs.existsSync)(dir))
       (0, import_node_fs.mkdirSync)(dir, { recursive: true, mode: 448 });
-    const dest = getFileBackendPath();
     const tmp = `${dest}.tmp.${process.pid}`;
     (0, import_node_fs.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
     (0, import_node_fs.renameSync)(tmp, dest);
@@ -230,9 +235,8 @@ function fileWrite(record) {
     return false;
   }
 }
-function fileRead() {
+function fileRead(dest) {
   try {
-    const dest = getFileBackendPath();
     if (!(0, import_node_fs.existsSync)(dest))
       return null;
     const raw = (0, import_node_fs.readFileSync)(dest, "utf8").trim();
@@ -241,9 +245,9 @@ function fileRead() {
     return null;
   }
 }
-function fileDelete() {
+function fileDelete(dest) {
   try {
-    (0, import_node_fs.rmSync)(getFileBackendPath(), { force: true });
+    (0, import_node_fs.rmSync)(dest, { force: true });
   } catch {
   }
 }
@@ -261,28 +265,28 @@ function nativeBackend() {
       return "file";
   }
 }
-function writeMintCredential(record) {
+function writeMintCredentialCore(record, service, filePath) {
   const payload = JSON.stringify(record);
   const backend = nativeBackend();
-  if (backend === "macos" && macosWrite(payload))
+  if (backend === "macos" && macosWrite(payload, service))
     return "macos";
-  if (backend === "secret-tool" && secretToolWrite(payload))
+  if (backend === "secret-tool" && secretToolWrite(payload, service))
     return "secret-tool";
-  if (backend === "windows" && windowsWrite(payload))
+  if (backend === "windows" && windowsWrite(payload, service))
     return "windows";
-  return fileWrite(payload) ? "file" : "none";
+  return fileWrite(payload, filePath) ? "file" : "none";
 }
-function readMintCredential() {
+function readMintCredentialCore(service, filePath) {
   const backend = nativeBackend();
   let raw = null;
   if (backend === "macos")
-    raw = macosRead();
+    raw = macosRead(service);
   else if (backend === "secret-tool")
-    raw = secretToolRead();
+    raw = secretToolRead(service);
   else if (backend === "windows")
-    raw = windowsRead();
+    raw = windowsRead(service);
   if (!raw)
-    raw = fileRead();
+    raw = fileRead(filePath);
   if (!raw)
     return null;
   try {
@@ -295,20 +299,29 @@ function readMintCredential() {
     return null;
   }
 }
-function deleteMintCredential() {
+function deleteMintCredentialCore(service, filePath) {
   try {
-    macosDelete();
+    macosDelete(service);
   } catch {
   }
   try {
-    secretToolDelete();
+    secretToolDelete(service);
   } catch {
   }
   try {
-    windowsDelete();
+    windowsDelete(service);
   } catch {
   }
-  fileDelete();
+  fileDelete(filePath);
+}
+function writeMintCredential(record, projectId) {
+  return writeMintCredentialCore(record, scopedKeyringService(projectId), getFileBackendPath(projectId));
+}
+function readMintCredential(projectId) {
+  return readMintCredentialCore(scopedKeyringService(projectId), getFileBackendPath(projectId));
+}
+function deleteMintCredential(projectId) {
+  deleteMintCredentialCore(scopedKeyringService(projectId), getFileBackendPath(projectId));
 }
 function isMintCredentialUsable(record, now = Date.now()) {
   if (!record)
@@ -332,6 +345,203 @@ var init_mint_credential_store = __esm({
     KEYRING_ACCOUNT = "gramatr";
     FILE_BACKEND_NAME = ".mint-credential";
     KEYRING_CMD_TIMEOUT_MS = 3e3;
+  }
+});
+
+// dist/hooks/lib/project-state.js
+function findProjectRoot(startDir = process.cwd()) {
+  let dir = startDir;
+  for (; ; ) {
+    if ((0, import_node_fs2.existsSync)((0, import_node_path2.join)(dir, GRAMATR_DIR)))
+      return dir;
+    const parent = (0, import_node_path2.dirname)(dir);
+    if (parent === dir)
+      return startDir;
+    dir = parent;
+  }
+}
+function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
+  const git = (args) => {
+    try {
+      return (0, import_node_child_process2.execFileSync)("git", args, {
+        cwd: dir,
+        env: gitEnv,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const gitDir = git(["rev-parse", "--git-dir"]);
+  const commonDir = git(["rev-parse", "--git-common-dir"]);
+  if (!gitDir || !commonDir)
+    return dir;
+  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path2.join)(dir, p);
+  const absGitDir = abs(gitDir);
+  const absCommonDir = abs(commonDir);
+  if (absGitDir === absCommonDir)
+    return dir;
+  const mainRoot = (0, import_node_path2.dirname)(absCommonDir);
+  if ((0, import_node_fs2.existsSync)((0, import_node_path2.join)(mainRoot, GRAMATR_DIR)))
+    return mainRoot;
+  return dir;
+}
+function resolveProjectDir(opts = {}) {
+  const winner = (() => {
+    if (opts.cwd && opts.cwd.length > 0)
+      return opts.cwd;
+    if (opts.clientType) {
+      const envName = CLIENT_PROJECT_DIR_ENV[opts.clientType];
+      if (envName) {
+        const value = process.env[envName];
+        if (value && value.length > 0)
+          return value;
+      }
+    }
+    return findProjectRoot();
+  })();
+  return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
+}
+function getStatePaths(projectDir) {
+  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR);
+  return {
+    core: (0, import_node_path2.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path2.join)(dir, RUNTIME_FILE)
+  };
+}
+function readJson(filePath) {
+  try {
+    if (!(0, import_node_fs2.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_node_fs2.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function migrateCore(core) {
+  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
+    return { ...core, schema_version: SCHEMA_VERSION };
+  }
+  return core;
+}
+function isNewShapeCore(raw) {
+  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
+}
+function legacyCoreIdentity(projectDir) {
+  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR);
+  const legacyProject = readJson((0, import_node_path2.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path2.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path2.join)(dir, "git-context.json"));
+  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
+  if (!project_id)
+    return null;
+  const project = {
+    project_id,
+    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
+  };
+  if (legacySettings?.project_entity_id) {
+    project.project_entity_id = legacySettings.project_entity_id;
+  }
+  if (legacySettings?.project_name) {
+    project.display_name = legacySettings.project_name;
+  }
+  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
+    project.previously_known_as = legacySettings.previously_known_as;
+  }
+  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
+  const drift = git_remote ? { git_remote } : {};
+  return { project, drift };
+}
+function legacyActiveSession(projectDir) {
+  const legacySession = readJson((0, import_node_path2.join)(projectDir, GRAMATR_DIR, "session.json"));
+  if (!legacySession?.session_id)
+    return void 0;
+  const active = { session_id: legacySession.session_id };
+  if (legacySession.client_session_id)
+    active.client_session_id = legacySession.client_session_id;
+  if (legacySession.interaction_id)
+    active.interaction_id = legacySession.interaction_id;
+  if (legacySession.client_type)
+    active.client_type = legacySession.client_type;
+  if (legacySession.written_at)
+    active.written_at = legacySession.written_at;
+  return active;
+}
+function synthesizeFromLegacy(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
+  const state = {
+    schema_version: SCHEMA_VERSION,
+    project: identity.project,
+    drift: identity.drift,
+    recent_sessions: []
+  };
+  const active = legacyActiveSession(projectDir);
+  if (active)
+    state.active_session = active;
+  return state;
+}
+function readProjectState(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const rawCore = readJson(paths.core);
+  const runtime = readJson(paths.runtime) ?? {};
+  if (isNewShapeCore(rawCore)) {
+    const core = migrateCore(rawCore);
+    return {
+      schema_version: core.schema_version,
+      project: core.project,
+      drift: core.drift ?? {},
+      active_session: runtime.active_session,
+      recent_sessions: runtime.recent_sessions ?? [],
+      statusline_cache: runtime.statusline_cache
+    };
+  }
+  const legacy = synthesizeFromLegacy(projectDir);
+  if (!legacy)
+    return null;
+  return {
+    ...legacy,
+    active_session: runtime.active_session ?? legacy.active_session,
+    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
+    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
+  };
+}
+var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+var init_project_state = __esm({
+  "dist/hooks/lib/project-state.js"() {
+    "use strict";
+    import_node_child_process2 = require("node:child_process");
+    import_node_fs2 = require("node:fs");
+    import_node_path2 = require("node:path");
+    GRAMATR_DIR = ".gramatr";
+    CLIENT_PROJECT_DIR_ENV = {
+      // gramatr-allow: c1
+      "claude-code": "CLAUDE_PROJECT_DIR",
+      // TODO(#3289): confirm Cursor's project-dir env var name when wiring the
+      // Cursor client. Placeholder constant — not yet read by any live client.
+      cursor: "CURSOR_PROJECT_DIR",
+      // TODO(#3289): confirm Windsurf's project-dir env var name.
+      windsurf: "WINDSURF_PROJECT_DIR",
+      // TODO(#3289): confirm Codex's project-dir env var name.
+      codex: "CODEX_PROJECT_DIR"
+    };
+    CORE_FILE = "project.json";
+    RUNTIME_FILE = "runtime.json";
+    SCHEMA_VERSION = 1;
   }
 });
 
@@ -447,15 +657,15 @@ function windowsRead2() {
 }
 function fileWrite2(record) {
   try {
-    const dir = (0, import_node_path2.join)(getHomeDir(), ".gramatr");
-    if (!(0, import_node_fs2.existsSync)(dir))
-      (0, import_node_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path3.join)(getHomeDir(), ".gramatr");
+    if (!(0, import_node_fs3.existsSync)(dir))
+      (0, import_node_fs3.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getFileBackendPath2();
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs2.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
-    (0, import_node_fs2.renameSync)(tmp, dest);
+    (0, import_node_fs3.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs3.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs2.chmodSync)(dest, 384);
+      (0, import_node_fs3.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -466,16 +676,16 @@ function fileWrite2(record) {
 function fileRead2() {
   try {
     const dest = getFileBackendPath2();
-    if (!(0, import_node_fs2.existsSync)(dest))
+    if (!(0, import_node_fs3.existsSync)(dest))
       return null;
-    const raw = (0, import_node_fs2.readFileSync)(dest, "utf8").trim();
+    const raw = (0, import_node_fs3.readFileSync)(dest, "utf8").trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
   }
 }
 function getFileBackendPath2() {
-  return (0, import_node_path2.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME2);
+  return (0, import_node_path3.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME2);
 }
 function fileBackendForced2() {
   return isKeyringFileOnlyFromEnv();
@@ -556,17 +766,17 @@ function getOrCreateDeviceKeyPair() {
   const backend = writeDeviceKey(keyPair);
   return { keyPair, backend: toBackendKind(backend) };
 }
-var import_node_child_process2, import_node_fs2, import_node_path2, import_node_crypto3, spawnImpl2, platformImpl2, KEYRING_SERVICE2, KEYRING_ACCOUNT2, FILE_BACKEND_NAME2, KEYRING_CMD_TIMEOUT_MS2;
+var import_node_child_process3, import_node_fs3, import_node_path3, import_node_crypto3, spawnImpl2, platformImpl2, KEYRING_SERVICE2, KEYRING_ACCOUNT2, FILE_BACKEND_NAME2, KEYRING_CMD_TIMEOUT_MS2;
 var init_device_key_store = __esm({
   "dist/hooks/lib/device-key-store.js"() {
     "use strict";
-    import_node_child_process2 = require("node:child_process");
-    import_node_fs2 = require("node:fs");
-    import_node_path2 = require("node:path");
+    import_node_child_process3 = require("node:child_process");
+    import_node_fs3 = require("node:fs");
+    import_node_path3 = require("node:path");
     import_node_crypto3 = require("node:crypto");
     init_config_runtime();
     init_device_key();
-    spawnImpl2 = import_node_child_process2.spawnSync;
+    spawnImpl2 = import_node_child_process3.spawnSync;
     platformImpl2 = null;
     KEYRING_SERVICE2 = "gramatr-device-key";
     KEYRING_ACCOUNT2 = "gramatr";
@@ -2178,13 +2388,13 @@ function normalizeRotatedCredential(block) {
   return null;
 }
 async function withMintLock(projectDir, fn) {
-  const dir = (0, import_node_path3.join)(projectDir, ".gramatr");
+  const dir = (0, import_node_path4.join)(projectDir, ".gramatr");
   try {
-    if (!(0, import_node_fs3.existsSync)(dir))
-      (0, import_node_fs3.mkdirSync)(dir, { recursive: true, mode: 448 });
-    const lockPath = (0, import_node_path3.join)(dir, MINT_LOCK_FILE);
-    if (!(0, import_node_fs3.existsSync)(lockPath))
-      (0, import_node_fs3.writeFileSync)(lockPath, "", { mode: 384 });
+    if (!(0, import_node_fs4.existsSync)(dir))
+      (0, import_node_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const lockPath = (0, import_node_path4.join)(dir, MINT_LOCK_FILE);
+    if (!(0, import_node_fs4.existsSync)(lockPath))
+      (0, import_node_fs4.writeFileSync)(lockPath, "", { mode: 384 });
     const lockfile = await Promise.resolve().then(() => __toESM(require_proper_lockfile(), 1));
     let release = null;
     try {
@@ -2204,8 +2414,19 @@ async function withMintLock(projectDir, fn) {
     return await fn();
   }
 }
+function resolveProjectIdForMint(projectDir) {
+  try {
+    return readProjectState(projectDir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
+}
 async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now = Date.now(), knownBadToken) {
-  if (!isMintCredentialUsable(readMintCredential(), now)) {
+  const projectId = resolveProjectIdForMint(projectDir);
+  if (!projectId) {
+    return { status: "no_credential" };
+  }
+  if (!isMintCredentialUsable(readMintCredential(projectId), now)) {
     return { status: "no_credential" };
   }
   return withMintLock(projectDir, async () => {
@@ -2213,7 +2434,7 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     if (isSessionTokenValid(current, now) && (!knownBadToken || current?.token !== knownBadToken)) {
       return { status: "minted", file: current };
     }
-    const record = readMintCredential();
+    const record = readMintCredential(projectId);
     if (!isMintCredentialUsable(record, now) || !record) {
       return { status: "no_credential" };
     }
@@ -2237,7 +2458,7 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
       return { status: "error" };
     }
     if (res.status === 401) {
-      await deleteMintCredential();
+      await deleteMintCredential(projectId);
       return { status: "denied" };
     }
     if (!res.ok) {
@@ -2245,7 +2466,7 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
         const body2 = await res.json();
         const rotated2 = normalizeRotatedCredential(body2.mint_credential);
         if (rotated2)
-          writeMintCredential(rotated2);
+          writeMintCredential(rotated2, projectId);
       } catch {
       }
       return { status: "error" };
@@ -2262,21 +2483,22 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     }
     const rotated = normalizeRotatedCredential(body.mint_credential);
     if (rotated)
-      writeMintCredential(rotated);
+      writeMintCredential(rotated, projectId);
     const file = readSessionToken(projectDir);
     if (!file)
       return { status: "error" };
     return { status: "minted", file };
   });
 }
-var import_node_fs3, import_node_path3, MINT_TIMEOUT_MS, MINT_LOCK_FILE, MINT_LOCK_STALE_MS;
+var import_node_fs4, import_node_path4, MINT_TIMEOUT_MS, MINT_LOCK_FILE, MINT_LOCK_STALE_MS;
 var init_mint_session_token = __esm({
   "dist/hooks/lib/mint-session-token.js"() {
     "use strict";
-    import_node_fs3 = require("node:fs");
-    import_node_path3 = require("node:path");
+    import_node_fs4 = require("node:fs");
+    import_node_path4 = require("node:path");
     init_session_rest_token();
     init_mint_credential_store();
+    init_project_state();
     init_device_key();
     init_device_key_store();
     MINT_TIMEOUT_MS = 3e3;
@@ -2287,7 +2509,7 @@ var init_mint_session_token = __esm({
 
 // dist/hooks/lib/session-rest-token.js
 function getSessionTokenPath(projectDir) {
-  return (0, import_node_path4.join)(projectDir, GRAMATR_DIR, SESSION_FILE);
+  return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
   if (!block || typeof block !== "object")
@@ -2306,17 +2528,17 @@ function normalizeRestTokenBlock(block) {
   return null;
 }
 function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path4.join)(projectDir, GRAMATR_DIR);
-  if (!(0, import_node_fs4.existsSync)(dir)) {
-    (0, import_node_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
+  if (!(0, import_node_fs5.existsSync)(dir)) {
+    (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
   const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs4.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs4.renameSync)(tmp, dest);
+  (0, import_node_fs5.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs5.renameSync)(tmp, dest);
   try {
-    (0, import_node_fs4.chmodSync)(dest, 384);
+    (0, import_node_fs5.chmodSync)(dest, 384);
   } catch {
   }
 }
@@ -2330,9 +2552,9 @@ function persistBootstrapRestToken(projectDir, block) {
 function readSessionToken(projectDir) {
   const dest = getSessionTokenPath(projectDir);
   try {
-    if (!(0, import_node_fs4.existsSync)(dest))
+    if (!(0, import_node_fs5.existsSync)(dest))
       return null;
-    const parsed = JSON.parse((0, import_node_fs4.readFileSync)(dest, "utf8"));
+    const parsed = JSON.parse((0, import_node_fs5.readFileSync)(dest, "utf8"));
     return normalizeRestTokenBlock(parsed);
   } catch {
     return null;
@@ -2366,7 +2588,7 @@ function shouldProactivelyRenew(file, now = Date.now()) {
 }
 function deleteSessionToken(projectDir) {
   try {
-    (0, import_node_fs4.rmSync)(getSessionTokenPath(projectDir), { force: true });
+    (0, import_node_fs5.rmSync)(getSessionTokenPath(projectDir), { force: true });
   } catch {
   }
 }
@@ -2472,14 +2694,14 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Da
     return handleRenewDenied(projectDir, file, fetchImpl, now);
   return file;
 }
-var import_node_fs4, import_node_path4, GRAMATR_DIR, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS;
+var import_node_fs5, import_node_path5, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
-    import_node_fs4 = require("node:fs");
-    import_node_path4 = require("node:path");
+    import_node_fs5 = require("node:fs");
+    import_node_path5 = require("node:path");
     init_dpop_key();
-    GRAMATR_DIR = ".gramatr";
+    GRAMATR_DIR2 = ".gramatr";
     SESSION_FILE = ".session";
     SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
     SESSION_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
@@ -2500,201 +2722,7 @@ init_session_rest_token();
 var import_node_fs6 = require("node:fs");
 var import_node_path6 = require("node:path");
 init_config_runtime();
-
-// dist/hooks/lib/project-state.js
-var import_node_child_process3 = require("node:child_process");
-var import_node_fs5 = require("node:fs");
-var import_node_path5 = require("node:path");
-var GRAMATR_DIR2 = ".gramatr";
-function findProjectRoot(startDir = process.cwd()) {
-  let dir = startDir;
-  for (; ; ) {
-    if ((0, import_node_fs5.existsSync)((0, import_node_path5.join)(dir, GRAMATR_DIR2)))
-      return dir;
-    const parent = (0, import_node_path5.dirname)(dir);
-    if (parent === dir)
-      return startDir;
-    dir = parent;
-  }
-}
-function canonicalizeProjectRoot(dir) {
-  const gitEnv = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CEILING_DIRECTORIES"
-  ]) {
-    delete gitEnv[key];
-  }
-  const git = (args) => {
-    try {
-      return (0, import_node_child_process3.execFileSync)("git", args, {
-        cwd: dir,
-        env: gitEnv,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"]
-      }).trim();
-    } catch {
-      return null;
-    }
-  };
-  const gitDir = git(["rev-parse", "--git-dir"]);
-  const commonDir = git(["rev-parse", "--git-common-dir"]);
-  if (!gitDir || !commonDir)
-    return dir;
-  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path5.join)(dir, p);
-  const absGitDir = abs(gitDir);
-  const absCommonDir = abs(commonDir);
-  if (absGitDir === absCommonDir)
-    return dir;
-  const mainRoot = (0, import_node_path5.dirname)(absCommonDir);
-  if ((0, import_node_fs5.existsSync)((0, import_node_path5.join)(mainRoot, GRAMATR_DIR2)))
-    return mainRoot;
-  return dir;
-}
-var CLIENT_PROJECT_DIR_ENV = {
-  // gramatr-allow: c1
-  "claude-code": "CLAUDE_PROJECT_DIR",
-  // TODO(#3289): confirm Cursor's project-dir env var name when wiring the
-  // Cursor client. Placeholder constant — not yet read by any live client.
-  cursor: "CURSOR_PROJECT_DIR",
-  // TODO(#3289): confirm Windsurf's project-dir env var name.
-  windsurf: "WINDSURF_PROJECT_DIR",
-  // TODO(#3289): confirm Codex's project-dir env var name.
-  codex: "CODEX_PROJECT_DIR"
-};
-function resolveProjectDir(opts = {}) {
-  const winner = (() => {
-    if (opts.cwd && opts.cwd.length > 0)
-      return opts.cwd;
-    if (opts.clientType) {
-      const envName = CLIENT_PROJECT_DIR_ENV[opts.clientType];
-      if (envName) {
-        const value = process.env[envName];
-        if (value && value.length > 0)
-          return value;
-      }
-    }
-    return findProjectRoot();
-  })();
-  return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
-}
-var CORE_FILE = "project.json";
-var RUNTIME_FILE = "runtime.json";
-function getStatePaths(projectDir) {
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
-  return {
-    core: (0, import_node_path5.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path5.join)(dir, RUNTIME_FILE)
-  };
-}
-var SCHEMA_VERSION = 1;
-function readJson(filePath) {
-  try {
-    if (!(0, import_node_fs5.existsSync)(filePath))
-      return null;
-    return JSON.parse((0, import_node_fs5.readFileSync)(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function migrateCore(core) {
-  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
-    return { ...core, schema_version: SCHEMA_VERSION };
-  }
-  return core;
-}
-function isNewShapeCore(raw) {
-  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
-}
-function legacyCoreIdentity(projectDir) {
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
-  const legacyProject = readJson((0, import_node_path5.join)(dir, "project.json"));
-  const legacySettings = readJson((0, import_node_path5.join)(dir, "settings.json"));
-  const legacyGit = readJson((0, import_node_path5.join)(dir, "git-context.json"));
-  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
-  if (!project_id)
-    return null;
-  const project = {
-    project_id,
-    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
-  };
-  if (legacySettings?.project_entity_id) {
-    project.project_entity_id = legacySettings.project_entity_id;
-  }
-  if (legacySettings?.project_name) {
-    project.display_name = legacySettings.project_name;
-  }
-  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
-    project.previously_known_as = legacySettings.previously_known_as;
-  }
-  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
-  const drift = git_remote ? { git_remote } : {};
-  return { project, drift };
-}
-function legacyActiveSession(projectDir) {
-  const legacySession = readJson((0, import_node_path5.join)(projectDir, GRAMATR_DIR2, "session.json"));
-  if (!legacySession?.session_id)
-    return void 0;
-  const active = { session_id: legacySession.session_id };
-  if (legacySession.client_session_id)
-    active.client_session_id = legacySession.client_session_id;
-  if (legacySession.interaction_id)
-    active.interaction_id = legacySession.interaction_id;
-  if (legacySession.client_type)
-    active.client_type = legacySession.client_type;
-  if (legacySession.written_at)
-    active.written_at = legacySession.written_at;
-  return active;
-}
-function synthesizeFromLegacy(projectDir) {
-  const identity = legacyCoreIdentity(projectDir);
-  if (!identity)
-    return null;
-  const state = {
-    schema_version: SCHEMA_VERSION,
-    project: identity.project,
-    drift: identity.drift,
-    recent_sessions: []
-  };
-  const active = legacyActiveSession(projectDir);
-  if (active)
-    state.active_session = active;
-  return state;
-}
-function readProjectState(projectDir) {
-  const paths = getStatePaths(projectDir);
-  const rawCore = readJson(paths.core);
-  const runtime = readJson(paths.runtime) ?? {};
-  if (isNewShapeCore(rawCore)) {
-    const core = migrateCore(rawCore);
-    return {
-      schema_version: core.schema_version,
-      project: core.project,
-      drift: core.drift ?? {},
-      active_session: runtime.active_session,
-      recent_sessions: runtime.recent_sessions ?? [],
-      last_handoff: runtime.last_handoff,
-      statusline_cache: runtime.statusline_cache
-    };
-  }
-  const legacy = synthesizeFromLegacy(projectDir);
-  if (!legacy)
-    return null;
-  return {
-    ...legacy,
-    active_session: runtime.active_session ?? legacy.active_session,
-    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
-    last_handoff: runtime.last_handoff ?? legacy.last_handoff,
-    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
-  };
-}
-
-// dist/hooks/lib/session-root-registry.js
+init_project_state();
 var DEFAULT_REGISTRY_TTL_DAYS = 14;
 function registryTtlMs() {
   const days = getSessionRegistryTtlDaysFromEnv(DEFAULT_REGISTRY_TTL_DAYS);
@@ -2800,6 +2828,9 @@ function resolveSessionRoot(opts) {
     canonicalizeWorktree: true
   });
 }
+
+// dist/bin/git-commit-handoff.js
+init_project_state();
 
 // dist/hooks/lib/hook-stdin.js
 async function readHookStdin() {

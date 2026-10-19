@@ -85,6 +85,298 @@ var init_config_runtime = __esm({
   }
 });
 
+// dist/hooks/lib/project-state.js
+function findProjectRoot(startDir = process.cwd()) {
+  let dir = startDir;
+  for (; ; ) {
+    if ((0, import_node_fs4.existsSync)((0, import_node_path5.join)(dir, GRAMATR_DIR)))
+      return dir;
+    const parent = (0, import_node_path5.dirname)(dir);
+    if (parent === dir)
+      return startDir;
+    dir = parent;
+  }
+}
+function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
+  const git = (args) => {
+    try {
+      return (0, import_node_child_process.execFileSync)("git", args, {
+        cwd: dir,
+        env: gitEnv,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const gitDir = git(["rev-parse", "--git-dir"]);
+  const commonDir = git(["rev-parse", "--git-common-dir"]);
+  if (!gitDir || !commonDir)
+    return dir;
+  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path5.join)(dir, p);
+  const absGitDir = abs(gitDir);
+  const absCommonDir = abs(commonDir);
+  if (absGitDir === absCommonDir)
+    return dir;
+  const mainRoot = (0, import_node_path5.dirname)(absCommonDir);
+  if ((0, import_node_fs4.existsSync)((0, import_node_path5.join)(mainRoot, GRAMATR_DIR)))
+    return mainRoot;
+  return dir;
+}
+function resolveProjectDir(opts = {}) {
+  const winner = (() => {
+    if (opts.cwd && opts.cwd.length > 0)
+      return opts.cwd;
+    if (opts.clientType) {
+      const envName = CLIENT_PROJECT_DIR_ENV[opts.clientType];
+      if (envName) {
+        const value = process.env[envName];
+        if (value && value.length > 0)
+          return value;
+      }
+    }
+    return findProjectRoot();
+  })();
+  return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
+}
+function getStatePaths(projectDir) {
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
+  return {
+    core: (0, import_node_path5.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path5.join)(dir, RUNTIME_FILE)
+  };
+}
+function atomicWriteJson(filePath, dir, payload) {
+  if (!(0, import_node_fs4.existsSync)(dir)) {
+    (0, import_node_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  (0, import_node_fs4.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_node_fs4.renameSync)(tmp, filePath);
+  try {
+    (0, import_node_fs4.chmodSync)(filePath, 384);
+  } catch {
+  }
+}
+function readJson(filePath) {
+  try {
+    if (!(0, import_node_fs4.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_node_fs4.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function migrateCore(core) {
+  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
+    return { ...core, schema_version: SCHEMA_VERSION };
+  }
+  return core;
+}
+function isNewShapeCore(raw) {
+  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
+}
+function legacyCoreIdentity(projectDir) {
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
+  const legacyProject = readJson((0, import_node_path5.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path5.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path5.join)(dir, "git-context.json"));
+  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
+  if (!project_id)
+    return null;
+  const project = {
+    project_id,
+    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
+  };
+  if (legacySettings?.project_entity_id) {
+    project.project_entity_id = legacySettings.project_entity_id;
+  }
+  if (legacySettings?.project_name) {
+    project.display_name = legacySettings.project_name;
+  }
+  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
+    project.previously_known_as = legacySettings.previously_known_as;
+  }
+  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
+  const drift = git_remote ? { git_remote } : {};
+  return { project, drift };
+}
+function legacyActiveSession(projectDir) {
+  const legacySession = readJson((0, import_node_path5.join)(projectDir, GRAMATR_DIR, "session.json"));
+  if (!legacySession?.session_id)
+    return void 0;
+  const active = { session_id: legacySession.session_id };
+  if (legacySession.client_session_id)
+    active.client_session_id = legacySession.client_session_id;
+  if (legacySession.interaction_id)
+    active.interaction_id = legacySession.interaction_id;
+  if (legacySession.client_type)
+    active.client_type = legacySession.client_type;
+  if (legacySession.written_at)
+    active.written_at = legacySession.written_at;
+  return active;
+}
+function synthesizeFromLegacy(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
+  const state = {
+    schema_version: SCHEMA_VERSION,
+    project: identity.project,
+    drift: identity.drift,
+    recent_sessions: []
+  };
+  const active = legacyActiveSession(projectDir);
+  if (active)
+    state.active_session = active;
+  return state;
+}
+function readProjectState(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const rawCore = readJson(paths.core);
+  const runtime = readJson(paths.runtime) ?? {};
+  if (isNewShapeCore(rawCore)) {
+    const core = migrateCore(rawCore);
+    return {
+      schema_version: core.schema_version,
+      project: core.project,
+      drift: core.drift ?? {},
+      active_session: runtime.active_session,
+      recent_sessions: runtime.recent_sessions ?? [],
+      statusline_cache: runtime.statusline_cache
+    };
+  }
+  const legacy = synthesizeFromLegacy(projectDir);
+  if (!legacy)
+    return null;
+  return {
+    ...legacy,
+    active_session: runtime.active_session ?? legacy.active_session,
+    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
+    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
+  };
+}
+function confirmProject(projectDir, args) {
+  const paths = getStatePaths(projectDir);
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
+  const next = {
+    schema_version: SCHEMA_VERSION,
+    project: args.project,
+    drift: args.drift ?? {}
+  };
+  const prev = readJson(paths.core);
+  if (prev && JSON.stringify(prev) === JSON.stringify(next)) {
+    return;
+  }
+  atomicWriteJson(paths.core, dir, next);
+}
+function readRuntime(projectDir) {
+  return readJson(getStatePaths(projectDir).runtime) ?? {};
+}
+function patchRuntime(projectDir, patch) {
+  const paths = getStatePaths(projectDir);
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
+  const prev = readRuntime(projectDir);
+  const next = { ...prev, ...patch };
+  if (JSON.stringify(prev) === JSON.stringify(next)) {
+    return;
+  }
+  atomicWriteJson(paths.runtime, dir, next);
+}
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const defined = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== void 0)
+      defined[k] = v;
+  }
+  const next = {
+    session_id: prev?.session_id ?? "",
+    ...prev,
+    ...defined
+  };
+  patchRuntime(projectDir, { active_session: next });
+}
+function readGitContext(projectDir) {
+  return readRuntime(projectDir).git_context ?? null;
+}
+function persistBootstrapSessionState(projectDir, input) {
+  const sessionId = input.sessionId;
+  if (!sessionId)
+    return;
+  const projectId = input.projectId ?? "";
+  const clientType = input.clientType ?? "claude-code";
+  const next = {
+    session_id: sessionId,
+    project_id: projectId,
+    client_session_id: input.clientSessionId || null,
+    client_type: clientType,
+    written_at: (/* @__PURE__ */ new Date()).toISOString(),
+    ...input.model ? { model: input.model } : {}
+  };
+  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
+  const target = (0, import_node_path5.join)(dir, "session.json");
+  let unchanged = false;
+  try {
+    const prev = JSON.parse((0, import_node_fs4.readFileSync)(target, "utf8"));
+    unchanged = prev.session_id === next.session_id && prev.project_id === next.project_id && (prev.client_session_id ?? null) === (next.client_session_id ?? null) && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "");
+  } catch {
+  }
+  if (!unchanged) {
+    try {
+      atomicWriteJson(target, dir, next);
+    } catch {
+    }
+  }
+  try {
+    mergeActiveSession(projectDir, {
+      session_id: sessionId,
+      client_session_id: input.clientSessionId || void 0,
+      client_type: clientType,
+      written_at: next.written_at,
+      ...next.model ? { model: next.model } : {}
+    });
+  } catch {
+  }
+}
+var import_node_child_process, import_node_fs4, import_node_path5, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+var init_project_state = __esm({
+  "dist/hooks/lib/project-state.js"() {
+    "use strict";
+    import_node_child_process = require("node:child_process");
+    import_node_fs4 = require("node:fs");
+    import_node_path5 = require("node:path");
+    GRAMATR_DIR = ".gramatr";
+    CLIENT_PROJECT_DIR_ENV = {
+      // gramatr-allow: c1
+      "claude-code": "CLAUDE_PROJECT_DIR",
+      // TODO(#3289): confirm Cursor's project-dir env var name when wiring the
+      // Cursor client. Placeholder constant — not yet read by any live client.
+      cursor: "CURSOR_PROJECT_DIR",
+      // TODO(#3289): confirm Windsurf's project-dir env var name.
+      windsurf: "WINDSURF_PROJECT_DIR",
+      // TODO(#3289): confirm Codex's project-dir env var name.
+      codex: "CODEX_PROJECT_DIR"
+    };
+    CORE_FILE = "project.json";
+    RUNTIME_FILE = "runtime.json";
+    SCHEMA_VERSION = 1;
+  }
+});
+
 // dist/hooks/lib/token-stale.js
 function isTokenStaleSignal(signal) {
   if (signal.httpStatus !== 401)
@@ -859,8 +1151,14 @@ var init_session_rest_token = __esm({
 function currentPlatform() {
   return platformImpl ?? process.platform;
 }
-function getFileBackendPath() {
-  return (0, import_node_path11.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
+function scopedKeyringService(projectId) {
+  return `${KEYRING_SERVICE}:${projectId}`;
+}
+function scopedFileBackendName(projectId) {
+  return `${FILE_BACKEND_NAME}-${projectId}`;
+}
+function getFileBackendPath(projectId) {
+  return (0, import_node_path11.join)(getHomeDir(), ".gramatr", scopedFileBackendName(projectId));
 }
 function fileBackendForced() {
   return isKeyringFileOnlyFromEnv();
@@ -881,25 +1179,25 @@ function runKeyringCmd(cmd, args, input) {
     return null;
   }
 }
-function macosWrite(secret) {
+function macosWrite(secret, service) {
   const res = runKeyringCmd("security", [
     "add-generic-password",
     "-a",
     KEYRING_ACCOUNT,
     "-s",
-    KEYRING_SERVICE,
+    service,
     "-U",
     "-w",
     secret
   ]);
   return res !== null;
 }
-function secretToolWrite(secret) {
-  const res = runKeyringCmd("secret-tool", ["store", "--label", KEYRING_SERVICE, "service", KEYRING_SERVICE, "account", KEYRING_ACCOUNT], secret);
+function secretToolWrite(secret, service) {
+  const res = runKeyringCmd("secret-tool", ["store", "--label", service, "service", service, "account", KEYRING_ACCOUNT], secret);
   return res !== null;
 }
-function windowsWrite(secret) {
-  const target = `${KEYRING_SERVICE}:${KEYRING_ACCOUNT}`;
+function windowsWrite(secret, service) {
+  const target = `${service}:${KEYRING_ACCOUNT}`;
   const res = runKeyringCmd("cmdkey", [
     `/generic:${target}`,
     `/user:${KEYRING_ACCOUNT}`,
@@ -907,12 +1205,11 @@ function windowsWrite(secret) {
   ]);
   return res !== null;
 }
-function fileWrite(record) {
+function fileWrite(record, dest) {
   try {
     const dir = (0, import_node_path11.join)(getHomeDir(), ".gramatr");
     if (!(0, import_node_fs11.existsSync)(dir))
       (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
-    const dest = getFileBackendPath();
     const tmp = `${dest}.tmp.${process.pid}`;
     (0, import_node_fs11.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
     (0, import_node_fs11.renameSync)(tmp, dest);
@@ -939,16 +1236,19 @@ function nativeBackend() {
       return "file";
   }
 }
-function writeMintCredential(record) {
+function writeMintCredentialCore(record, service, filePath) {
   const payload = JSON.stringify(record);
   const backend = nativeBackend();
-  if (backend === "macos" && macosWrite(payload))
+  if (backend === "macos" && macosWrite(payload, service))
     return "macos";
-  if (backend === "secret-tool" && secretToolWrite(payload))
+  if (backend === "secret-tool" && secretToolWrite(payload, service))
     return "secret-tool";
-  if (backend === "windows" && windowsWrite(payload))
+  if (backend === "windows" && windowsWrite(payload, service))
     return "windows";
-  return fileWrite(payload) ? "file" : "none";
+  return fileWrite(payload, filePath) ? "file" : "none";
+}
+function writeMintCredential(record, projectId) {
+  return writeMintCredentialCore(record, scopedKeyringService(projectId), getFileBackendPath(projectId));
 }
 var import_node_child_process5, import_node_fs11, import_node_path11, spawnImpl, platformImpl, KEYRING_SERVICE, KEYRING_ACCOUNT, FILE_BACKEND_NAME, KEYRING_CMD_TIMEOUT_MS;
 var init_mint_credential_store = __esm({
@@ -2266,293 +2566,8 @@ ${block}
   }
 }
 
-// dist/hooks/lib/project-state.js
-var import_node_child_process = require("node:child_process");
-var import_node_fs4 = require("node:fs");
-var import_node_path5 = require("node:path");
-var GRAMATR_DIR = ".gramatr";
-function findProjectRoot(startDir = process.cwd()) {
-  let dir = startDir;
-  for (; ; ) {
-    if ((0, import_node_fs4.existsSync)((0, import_node_path5.join)(dir, GRAMATR_DIR)))
-      return dir;
-    const parent = (0, import_node_path5.dirname)(dir);
-    if (parent === dir)
-      return startDir;
-    dir = parent;
-  }
-}
-function canonicalizeProjectRoot(dir) {
-  const gitEnv = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CEILING_DIRECTORIES"
-  ]) {
-    delete gitEnv[key];
-  }
-  const git = (args) => {
-    try {
-      return (0, import_node_child_process.execFileSync)("git", args, {
-        cwd: dir,
-        env: gitEnv,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"]
-      }).trim();
-    } catch {
-      return null;
-    }
-  };
-  const gitDir = git(["rev-parse", "--git-dir"]);
-  const commonDir = git(["rev-parse", "--git-common-dir"]);
-  if (!gitDir || !commonDir)
-    return dir;
-  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path5.join)(dir, p);
-  const absGitDir = abs(gitDir);
-  const absCommonDir = abs(commonDir);
-  if (absGitDir === absCommonDir)
-    return dir;
-  const mainRoot = (0, import_node_path5.dirname)(absCommonDir);
-  if ((0, import_node_fs4.existsSync)((0, import_node_path5.join)(mainRoot, GRAMATR_DIR)))
-    return mainRoot;
-  return dir;
-}
-var CLIENT_PROJECT_DIR_ENV = {
-  // gramatr-allow: c1
-  "claude-code": "CLAUDE_PROJECT_DIR",
-  // TODO(#3289): confirm Cursor's project-dir env var name when wiring the
-  // Cursor client. Placeholder constant — not yet read by any live client.
-  cursor: "CURSOR_PROJECT_DIR",
-  // TODO(#3289): confirm Windsurf's project-dir env var name.
-  windsurf: "WINDSURF_PROJECT_DIR",
-  // TODO(#3289): confirm Codex's project-dir env var name.
-  codex: "CODEX_PROJECT_DIR"
-};
-function resolveProjectDir(opts = {}) {
-  const winner = (() => {
-    if (opts.cwd && opts.cwd.length > 0)
-      return opts.cwd;
-    if (opts.clientType) {
-      const envName = CLIENT_PROJECT_DIR_ENV[opts.clientType];
-      if (envName) {
-        const value = process.env[envName];
-        if (value && value.length > 0)
-          return value;
-      }
-    }
-    return findProjectRoot();
-  })();
-  return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
-}
-var CORE_FILE = "project.json";
-var RUNTIME_FILE = "runtime.json";
-function getStatePaths(projectDir) {
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
-  return {
-    core: (0, import_node_path5.join)(dir, CORE_FILE),
-    runtime: (0, import_node_path5.join)(dir, RUNTIME_FILE)
-  };
-}
-var SCHEMA_VERSION = 1;
-function atomicWriteJson(filePath, dir, payload) {
-  if (!(0, import_node_fs4.existsSync)(dir)) {
-    (0, import_node_fs4.mkdirSync)(dir, { recursive: true, mode: 448 });
-  }
-  const tmp = `${filePath}.tmp.${process.pid}`;
-  (0, import_node_fs4.writeFileSync)(tmp, JSON.stringify(payload, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs4.renameSync)(tmp, filePath);
-  try {
-    (0, import_node_fs4.chmodSync)(filePath, 384);
-  } catch {
-  }
-}
-function readJson(filePath) {
-  try {
-    if (!(0, import_node_fs4.existsSync)(filePath))
-      return null;
-    return JSON.parse((0, import_node_fs4.readFileSync)(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function migrateCore(core) {
-  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
-    return { ...core, schema_version: SCHEMA_VERSION };
-  }
-  return core;
-}
-function isNewShapeCore(raw) {
-  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
-}
-function legacyCoreIdentity(projectDir) {
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
-  const legacyProject = readJson((0, import_node_path5.join)(dir, "project.json"));
-  const legacySettings = readJson((0, import_node_path5.join)(dir, "settings.json"));
-  const legacyGit = readJson((0, import_node_path5.join)(dir, "git-context.json"));
-  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
-  if (!project_id)
-    return null;
-  const project = {
-    project_id,
-    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
-  };
-  if (legacySettings?.project_entity_id) {
-    project.project_entity_id = legacySettings.project_entity_id;
-  }
-  if (legacySettings?.project_name) {
-    project.display_name = legacySettings.project_name;
-  }
-  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
-    project.previously_known_as = legacySettings.previously_known_as;
-  }
-  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
-  const drift = git_remote ? { git_remote } : {};
-  return { project, drift };
-}
-function legacyActiveSession(projectDir) {
-  const legacySession = readJson((0, import_node_path5.join)(projectDir, GRAMATR_DIR, "session.json"));
-  if (!legacySession?.session_id)
-    return void 0;
-  const active = { session_id: legacySession.session_id };
-  if (legacySession.client_session_id)
-    active.client_session_id = legacySession.client_session_id;
-  if (legacySession.interaction_id)
-    active.interaction_id = legacySession.interaction_id;
-  if (legacySession.client_type)
-    active.client_type = legacySession.client_type;
-  if (legacySession.written_at)
-    active.written_at = legacySession.written_at;
-  return active;
-}
-function synthesizeFromLegacy(projectDir) {
-  const identity = legacyCoreIdentity(projectDir);
-  if (!identity)
-    return null;
-  const state = {
-    schema_version: SCHEMA_VERSION,
-    project: identity.project,
-    drift: identity.drift,
-    recent_sessions: []
-  };
-  const active = legacyActiveSession(projectDir);
-  if (active)
-    state.active_session = active;
-  return state;
-}
-function readProjectState(projectDir) {
-  const paths = getStatePaths(projectDir);
-  const rawCore = readJson(paths.core);
-  const runtime = readJson(paths.runtime) ?? {};
-  if (isNewShapeCore(rawCore)) {
-    const core = migrateCore(rawCore);
-    return {
-      schema_version: core.schema_version,
-      project: core.project,
-      drift: core.drift ?? {},
-      active_session: runtime.active_session,
-      recent_sessions: runtime.recent_sessions ?? [],
-      last_handoff: runtime.last_handoff,
-      statusline_cache: runtime.statusline_cache
-    };
-  }
-  const legacy = synthesizeFromLegacy(projectDir);
-  if (!legacy)
-    return null;
-  return {
-    ...legacy,
-    active_session: runtime.active_session ?? legacy.active_session,
-    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
-    last_handoff: runtime.last_handoff ?? legacy.last_handoff,
-    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
-  };
-}
-function confirmProject(projectDir, args) {
-  const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
-  const next = {
-    schema_version: SCHEMA_VERSION,
-    project: args.project,
-    drift: args.drift ?? {}
-  };
-  const prev = readJson(paths.core);
-  if (prev && JSON.stringify(prev) === JSON.stringify(next)) {
-    return;
-  }
-  atomicWriteJson(paths.core, dir, next);
-}
-function readRuntime(projectDir) {
-  return readJson(getStatePaths(projectDir).runtime) ?? {};
-}
-function patchRuntime(projectDir, patch) {
-  const paths = getStatePaths(projectDir);
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
-  const prev = readRuntime(projectDir);
-  const next = { ...prev, ...patch };
-  if (JSON.stringify(prev) === JSON.stringify(next)) {
-    return;
-  }
-  atomicWriteJson(paths.runtime, dir, next);
-}
-function mergeActiveSession(projectDir, patch) {
-  const prev = readRuntime(projectDir).active_session;
-  const defined = {};
-  for (const [k, v] of Object.entries(patch)) {
-    if (v !== void 0)
-      defined[k] = v;
-  }
-  const next = {
-    session_id: prev?.session_id ?? "",
-    ...prev,
-    ...defined
-  };
-  patchRuntime(projectDir, { active_session: next });
-}
-function readGitContext(projectDir) {
-  return readRuntime(projectDir).git_context ?? null;
-}
-function persistBootstrapSessionState(projectDir, input) {
-  const sessionId = input.sessionId;
-  if (!sessionId)
-    return;
-  const projectId = input.projectId ?? "";
-  const clientType = input.clientType ?? "claude-code";
-  const next = {
-    session_id: sessionId,
-    project_id: projectId,
-    client_session_id: input.clientSessionId || null,
-    client_type: clientType,
-    written_at: (/* @__PURE__ */ new Date()).toISOString(),
-    ...input.model ? { model: input.model } : {}
-  };
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR);
-  const target = (0, import_node_path5.join)(dir, "session.json");
-  let unchanged = false;
-  try {
-    const prev = JSON.parse((0, import_node_fs4.readFileSync)(target, "utf8"));
-    unchanged = prev.session_id === next.session_id && prev.project_id === next.project_id && (prev.client_session_id ?? null) === (next.client_session_id ?? null) && prev.client_type === next.client_type && (prev.model ?? "") === (next.model ?? "");
-  } catch {
-  }
-  if (!unchanged) {
-    try {
-      atomicWriteJson(target, dir, next);
-    } catch {
-    }
-  }
-  try {
-    mergeActiveSession(projectDir, {
-      session_id: sessionId,
-      client_session_id: input.clientSessionId || void 0,
-      client_type: clientType,
-      written_at: next.written_at,
-      ...next.model ? { model: next.model } : {}
-    });
-  } catch {
-  }
-}
+// dist/bin/init-identity.js
+init_project_state();
 
 // dist/hooks/lib/process-pin.js
 var import_node_crypto = require("node:crypto");
@@ -2680,6 +2695,7 @@ function getProcessPin(options = {}) {
 var import_node_child_process3 = require("node:child_process");
 var import_node_fs6 = require("node:fs");
 var import_node_path6 = require("node:path");
+init_project_state();
 init_config_runtime();
 function resolveBootstrapGitRemote(projectDir) {
   try {
@@ -2732,6 +2748,7 @@ function resolveBootstrapGitRemote(projectDir) {
 var import_node_fs7 = require("node:fs");
 var import_node_path7 = require("node:path");
 init_config_runtime();
+init_project_state();
 var DEFAULT_REGISTRY_TTL_DAYS = 14;
 function registryTtlMs() {
   const days = getSessionRegistryTtlDaysFromEnv(DEFAULT_REGISTRY_TTL_DAYS);
@@ -2961,6 +2978,7 @@ function readGitRemoteFromConfigSync(cwd) {
 }
 
 // dist/hooks/lib/resolve-home.js
+init_project_state();
 var SCRATCH_SLUG = "scratch";
 function defaultGetGitRemote(projectDir) {
   const fromConfig = readGitRemoteFromConfigSync(projectDir);
@@ -3573,9 +3591,9 @@ async function main() {
       }
     }
   }
-  if (payload.mint_credential) {
+  if (payload.mint_credential && effectivePayload.gramatr_project_id) {
     try {
-      writeMintCredential(payload.mint_credential);
+      writeMintCredential(payload.mint_credential, effectivePayload.gramatr_project_id);
     } catch {
     }
   }

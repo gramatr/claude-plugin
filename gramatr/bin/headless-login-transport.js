@@ -103,6 +103,13 @@ var init_mint_credential_store = __esm({
   }
 });
 
+// dist/hooks/lib/project-state.js
+var init_project_state = __esm({
+  "dist/hooks/lib/project-state.js"() {
+    "use strict";
+  }
+});
+
 // dist/hooks/lib/device-key.js
 var init_device_key = __esm({
   "dist/hooks/lib/device-key.js"() {
@@ -177,6 +184,7 @@ init_config_runtime();
 // dist/hooks/lib/bootstrap-client.js
 init_session_rest_token();
 init_mint_credential_store();
+init_project_state();
 init_device_key_store();
 
 // dist/hooks/lib/bootstrap-recovery.js
