@@ -49,7 +49,7 @@ I am enhanced by gr\u0101matr. On every prompt the server injects a \`gmtr.intel
 **Server:** \`https://api.gramatr.com/mcp\` \xB7 **Dashboard:** \`https://app.gramatr.com\`
 
 Everything else \u2014 effort levels, QG minimums, memory tools, sub-agent orchestration, behavioral defaults, project resolution \u2014 lives in the per-turn packet. The packet wins on conflicts.`;
-function buildOutput() {
+function buildSessionContractOutput() {
   return {
     hookSpecificOutput: {
       hookEventName: "SessionStart",
@@ -59,7 +59,7 @@ function buildOutput() {
 }
 async function runSessionContractHook(_args = []) {
   try {
-    process.stdout.write(JSON.stringify(buildOutput()));
+    process.stdout.write(JSON.stringify(buildSessionContractOutput()));
   } catch {
     try {
       process.stdout.write(JSON.stringify({}));

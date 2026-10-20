@@ -100,17 +100,25 @@ already fresh and there is no in-session work to seal), skip straight to Step 3.
 ## Step 3 — REHYDRATE (rebuild the thread from turn-native resources)
 
 Run this leg whenever the window is fresh (right after `/clear`, on resume, or in
-a new session). Use the `project_id` resolved in Step 1.
+a new session). Use the `project_id` resolved in Step 1. Read `client_session_id`
+from `.gramatr/session.json` **in the current working directory** once, up front
+(the same read Step 3.2 performs) — both calls in this step need it.
 
 1. **Read full turns directly.** Call
-   `ReadMcpResource("gramatr://project/recent-turns/<project_id>?n=10")` for the
-   full prompt+response turns. (Project-scoped, not session-scoped: in a
-   genuinely new session — a different terminal/window, not a `/clear` inside
-   the current one — `gramatr_session_id` will differ, so the project resource
-   is the only path back to the prior thread. Within one running harness window,
-   `gramatr_session_id` persists across `/clear` — see Step 3.2 — but don't
-   assume that holds for every client; the project-scoped turn resource is the
-   robust fallback either way.)
+   `ReadMcpResource("gramatr://project/recent-turns/<project_id>?n=10&client_session_id=<value>")`
+   for the full prompt+response turns, always appending `client_session_id` when
+   one is available (#6861 — the backend has supported this scoping since
+   2026-10-18; omitting it is the #6882 bug this step exists to not repeat).
+   (Project-scoped, not session-scoped: in a genuinely new session — a different
+   terminal/window, not a `/clear` inside the current one — `gramatr_session_id`
+   will differ, so the project resource is the only path back to the prior
+   thread. Within one running harness window, `gramatr_session_id` persists
+   across `/clear` — see Step 3.2 — but don't assume that holds for every
+   client; the project-scoped turn resource is the robust fallback either way.
+   `client_session_id` is what disambiguates which of possibly several
+   concurrent windows on this same project the returned turns actually belong
+   to — append it whenever `.gramatr/session.json` has one; only a brand-new
+   window before its first write genuinely lacks it.)
 
    Do NOT call `gramatr://project/recent-turn-summaries/<project_id>` first as a
    "cheap scan" — `summarize_turn` (the only thing that ever populated a turn's

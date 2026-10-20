@@ -38,6 +38,14 @@
               "${CLAUDE_PLUGIN_ROOT}/bin/memory-gate.js"
             ],
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/project-write-guard.js"
+            ],
+            "timeout": 5
           }
         ]
       }
@@ -115,6 +123,14 @@
               "${CLAUDE_PLUGIN_ROOT}/bin/session-contract.js"
             ],
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/bin/session-hydration.js"
+            ],
+            "timeout": 7
           }
         ]
       }
