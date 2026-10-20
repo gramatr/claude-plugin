@@ -2662,6 +2662,19 @@ init_session_rest_token();
 init_project_state();
 var HYDRATION_TIMEOUT_MS = 5e3;
 var HYDRATING_SOURCES = /* @__PURE__ */ new Set(["clear", "resume", "compact"]);
+var HOOK_DEGRADE_DETAIL = {
+  wrong_source: "non-hydrating session source",
+  no_project_pin: "no project pin resolved yet",
+  no_usable_credential: "no usable local session credential for this project"
+};
+function hookDegradeOneLiner(reason) {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: `[gramatr: hydration unavailable \u2014 ${HOOK_DEGRADE_DETAIL[reason]}]`
+    }
+  };
+}
 async function runSessionHydrationHook(input, fetchImpl = fetch, projectDir = input.cwd ?? process.cwd()) {
   try {
     if (!input.source || !HYDRATING_SOURCES.has(input.source)) {
@@ -2675,7 +2688,7 @@ async function runSessionHydrationHook(input, fetchImpl = fetch, projectDir = in
     const clientSessionId = state?.active_session?.client_session_id;
     const auth = await resolveUsableSessionToken(projectDir, fetchImpl);
     if (!auth) {
-      return null;
+      return hookDegradeOneLiner("no_usable_credential");
     }
     const base = apiV1Base(auth.base_url);
     const url = clientSessionId ? `${base}/session-hydration-summary?client_session_id=${encodeURIComponent(clientSessionId)}` : `${base}/session-hydration-summary`;
