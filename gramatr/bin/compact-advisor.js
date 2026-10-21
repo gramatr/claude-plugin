@@ -250,15 +250,15 @@ function computeCompactAdvisory(ctxTokensUsed, limit, warnPct, compactPct, auto,
   const limitK = Math.round(limit / 1e3);
   if (pct >= compactPct) {
     if (auto) {
-      return `[gr\u0101matr: context ${pct}% full (${usedK}K/${limitK}K) \u2014 CRITICAL]
-MANDATORY, ACT NOW: Your context window is critically full. Run /gramatr:continue right now \u2014 it atomically saves a full handoff, clears, and rehydrates in one step, so nothing is lost. If a slash command isn't available in this context, call save_handoff yourself FIRST and confirm it returned success \u2014 ONLY THEN tell the user "Handoff saved \u2014 it is safe to run /clear now." Never tell the user it is safe to clear before the save has actually succeeded.`;
+      return `[gr\u0101matr: context ${pct}% full (${usedK}K/${limitK}K)]
+Your context window is getting tight \u2014 quality can start to drop from here. Good time to tell the user it's time to /clear. Nothing will be lost: every turn is already sealed continuously, not something /clear needs to trigger. The thread picks back up automatically afterward; mention /restore if they'd like an explicit walkthrough of what came back.`;
     }
-    return `[gr\u0101matr: context ${pct}% full (${usedK}K/${limitK}K) \u2014 CRITICAL]
-MANDATORY, ACT NOW: Tell the user their context window is ${pct}% full and recommend they run /gramatr:continue now \u2014 it atomically saves a full handoff, clears, and rehydrates in one step. If they'd rather do it manually: call save_handoff yourself FIRST and confirm it returned success \u2014 ONLY THEN tell the user "Handoff saved \u2014 it is safe to run /clear now." Never tell the user it is safe to clear before the save has actually succeeded.`;
+    return `[gr\u0101matr: context ${pct}% full (${usedK}K/${limitK}K)]
+Tell the user their context window is ${pct}% full and it's a good time to /clear. Nothing will be lost \u2014 every turn is already sealed continuously. The thread picks back up automatically afterward; mention /restore if they'd like an explicit walkthrough of what came back.`;
   }
   if (pct >= warnPct) {
     return `[gr\u0101matr: context ~${pct}% full (${usedK}K/${limitK}K)]
-Context is filling up. Recommend the user run /gramatr:continue soon (atomic save + clear + rehydrate), or plan to call save_handoff yourself and confirm it succeeds before things get critical.`;
+Context is filling up. No action needed yet \u2014 when it's time to /clear, nothing will be lost; work is sealed continuously as you go.`;
   }
   return "";
 }
