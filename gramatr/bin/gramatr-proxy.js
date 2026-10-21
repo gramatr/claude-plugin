@@ -2855,8 +2855,8 @@ function extractEnvelopeErrorCode(response) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.36.4") {
-      return "0.36.4";
+    if ("0.36.5") {
+      return "0.36.5";
     }
   } catch {
   }

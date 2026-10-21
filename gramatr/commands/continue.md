@@ -89,10 +89,17 @@ turn or handoff would be lost. Protect against that:
 ## Step 2 — CLEAR (drop the context window)
 
 `/clear` is destructive and cannot be self-invoked by you mid-turn. Tell the user
-exactly what to type and that rehydrate follows automatically on the next turn:
+exactly what to type, and give one deterministic next step — not "send anything" —
+so there is no ambiguity about what resumes the thread:
 
-> Context sealed. Type `/clear` now — then send any message (or just `/continue`
-> again) and I will rehydrate the thread automatically.
+> Context sealed. Type `/clear` now — then type `/continue` again and I will
+> rehydrate the thread automatically.
+
+A bare message after `/clear` (not `/continue`) still triggers rehydrate — the
+mechanism in Step 3 doesn't care what text arrives, only that the window is
+fresh — but never advertise that path to the user. Always tell them to type
+`/continue` again specifically: one verb, every time, nothing to remember or
+second-guess.
 
 If the harness invoked `/continue` as a post-`/clear` continuation (the window is
 already fresh and there is no in-session work to seal), skip straight to Step 3.
