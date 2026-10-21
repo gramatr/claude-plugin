@@ -2640,6 +2640,7 @@ var import_node_crypto = require("node:crypto");
 var import_node_child_process2 = require("node:child_process");
 var import_node_fs6 = require("node:fs");
 var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
 var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
 function defaultReadProcStat(pid) {
   return (0, import_node_fs6.readFileSync)(`/proc/${pid}/stat`, "utf8");
@@ -2655,6 +2656,15 @@ function defaultRunPs(args) {
 }
 function defaultReadMachineId() {
   return (0, import_node_fs6.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
 }
 function parseProcStat(raw) {
   const lastParen = raw.lastIndexOf(")");
@@ -2749,9 +2759,15 @@ function getProcessPin(options = {}) {
     }
     if (!host)
       return null;
-    const raw = `${host}|${ancestor.pid}|${ancestor.starttime}`;
-    const value = `pin-${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
-    return { value, pid: ancestor.pid, startTime: ancestor.starttime, host };
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const raw = `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const value = `${CLIENT_SESSION_ID_PREFIX}${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return { value, pid: ancestor.pid, startTime: ancestor.starttime, host, user };
   } catch {
     return null;
   }

@@ -59,10 +59,10 @@ Print this verb table verbatim, then stop:
 /gramatr:gramatr setup cursor            → wire grāmatr's sessionStart hook into Cursor
 ```
 
-`whoami`, `recall`, `feedback`, `reflect`, `authenticate`, and `login` are
-standalone native commands only (#4855, #5193 for the latter two) — type `/`
+`whoami`, `recall`, `feedback`, `reflect`, and `authenticate` are
+standalone native commands only (#4855, #5193 for `authenticate`) — type `/`
 and pick `gramatr:whoami`, `gramatr:recall`, `gramatr:feedback`,
-`gramatr:reflect`, `gramatr:authenticate`, or `gramatr:login`. They are NOT
+`gramatr:reflect`, or `gramatr:authenticate`. They are NOT
 dispatcher sub-verbs; `/gramatr:gramatr whoami` (etc.) is not a recognized
 verb — see "unknown verb" below.
 
@@ -113,17 +113,18 @@ grāmatr status
   version     plugin v<plugin> vs server v<server>: <match|behind|ahead>
   session     <session_id>                 — or "placeholder test-session (#3187)"
   statusline  installed   — or "not installed (run /gramatr:gramatr statusline)"
-  block       current   — or "n/a" — or "DRIFTED: run /gramatr:gramatr-update"
+  block       current   — or "n/a" — or "DRIFTED: legacy block, safe to remove"
 ```
 
 If drift is flagged, add one line: suggest `/gramatr:gramatr project` to re-pin, and
 note this can also be the known per-turn resolution gap (the SessionStart
 pin is canonical; the packet may lag).
 
-If the `block` line reports DRIFTED, add one line pointing the user at
-`/gramatr:gramatr-update` to restore the canonical grāmatr block in
-`CLAUDE.md` (the block carries the current version marker but its body was
-edited away from canonical).
+If the `block` line reports DRIFTED, add one line telling the user the static
+`<!-- gramatr-block -->` section in `CLAUDE.md` is a legacy artifact — the
+Tier 1 contract now arrives live via the SessionStart hook (#6826), so the
+drifted block is vestigial and can simply be removed by hand (delete from the
+`<!-- gramatr-block: vN -->` marker through the matching `<!-- /gramatr-block -->`).
 
 ### `update`
 
@@ -142,8 +143,9 @@ Read-only plugin-vs-server version check. No mutation.
    - plugin **ahead** of server → note the plugin is ahead of the live
      server version; usually transient around a release.
 
-Then stop. To refresh the bundled grāmatr block in `CLAUDE.md` (a separate
-concern from the plugin binary), point the user at `/gramatr:gramatr-update`.
+Then stop. The static grāmatr block in `CLAUDE.md` is no longer maintained
+separately — the Tier 1 contract arrives live via the SessionStart hook
+(#6826), so there is no block to refresh.
 
 ### `init`
 
@@ -504,10 +506,11 @@ If the user passed `on` or `activate` as a sub-argument, jump straight to
 Activate. If `off` or `deactivate`, jump to Deactivate. Otherwise present
 both options and let the user choose.
 
-(#4855 — shared with `/gramatr:enable-statusline` and `/gramatr:disable-statusline`,
-one implementation instead of three copies. The shared script handles the
-`~/.claude/settings.json` missing-file case that this verb's earlier inline
-form did not.)
+(#4855 — this verb is now the single statusLine entry point; the standalone
+`/gramatr:enable-statusline` and `/gramatr:disable-statusline` commands that
+once shared this same `bin/statusline-toggle.js` were retired in the 2026-10-20
+slash-command cleanup. The shared script handles the `~/.claude/settings.json`
+missing-file case that this verb's earlier inline form did not.)
 
 #### Activate (install statusLine)
 
@@ -576,11 +579,11 @@ sticking automatically.
 
 ### unknown verb
 
-If the verb is `whoami`, `recall`, `feedback`, `reflect`, `authenticate`, or
-`login` (#4855, #5193 — these are standalone commands only, not dispatcher
+If the verb is `whoami`, `recall`, `feedback`, `reflect`, or `authenticate`
+(#4855, #5193 — these are standalone commands only, not dispatcher
 sub-verbs), print one line naming the standalone command and stop:
 
-> `whoami`/`recall`/`feedback`/`reflect`/`authenticate`/`login` are standalone
+> `whoami`/`recall`/`feedback`/`reflect`/`authenticate` are standalone
 > commands, not `gramatr` sub-verbs — run `/gramatr:<verb>` instead (e.g.
 > `/gramatr:whoami`, `/gramatr:authenticate`).
 
@@ -595,10 +598,23 @@ Do not guess what the user meant. Do not call any tools.
 - Phase 2 of #3128 migrated `/handoff`, `/gramatr-setup-project`, and
   `/gramatr-statusline` into this verb shell; those legacy commands have
   been removed. `/gramatr-cleanup` was retired in #3127 with no replacement
-  verb (legacy-only artifact). The block-refresh command remains separate from
-  this verb shell; under the installed plugin it invokes as
-  `/gramatr:gramatr-update` (the bare `/gramatr-update` does not invoke), and it
-  refreshes the bundled grāmatr block in `CLAUDE.md`.
+  verb (legacy-only artifact).
+- Slash-command cleanup (2026-10-20) pruned redundant/legacy standalone
+  commands, matching the earlier consolidation pattern:
+  - `/gramatr:login` removed — it was a pure alias delegating to
+    `/gramatr:authenticate` with no distinct behavior (#5193); use
+    `/gramatr:authenticate`.
+  - `/gramatr:enable-statusline` and `/gramatr:disable-statusline` removed —
+    fully superseded by this shell's `statusline [on|off]` verb (#4855), which
+    calls the same shared `bin/statusline-toggle.js`.
+  - `/gramatr:gramatr-update` removed — a one-time CLAUDE.md migration tool that
+    stripped the legacy `<!-- gramatr-block -->` section; migration is complete
+    fleet-wide and the Tier 1 contract now arrives live via the SessionStart
+    hook (#6826), so a drifted legacy block is simply removed by hand.
+  - `/gramatr:enable-telemetry` + `/gramatr:disable-telemetry` consolidated into
+    one `/gramatr:telemetry [on|off]` command, and `/gramatr:enable-memory-gate`
+    + `/gramatr:disable-memory-gate` into one `/gramatr:memory-gate [on|off]` —
+    same on|off shape as `statusline`, one documented flow instead of two copies.
 - Invocation namespacing (#3347): every command in this plugin is reached via
   the `/gramatr:<command>` form — the dispatcher is `/gramatr:gramatr <verb>`,
   and the native wave-1 verbs are `/gramatr:whoami`, `/gramatr:recall`,

@@ -16,7 +16,7 @@ I am enhanced by gr\u0101matr. On every prompt the server injects a \`gmtr.intel
 | UserPromptSubmit | Tier 2 delivers classification, directives, required actions. I execute every \`required_actions\` entry in phase order before any user-facing token. |
 | PreToolUse | git-gate blocks destructive git ops (force-push, push to main); memory-gate warns off writes to Claude Code's own local auto-memory files. Entity_type is validated on the call itself, server-side \u2014 if rejected, I fix the call, never bypass. |
 | PostToolUse | I surface honest errors; I never rubber-stamp PASS. |
-| Stop | The platform already handles both of these without me: \`classification_feedback\` is auto-submitted if I don't call it myself, and \`save_reflection\` (standard+) blocks Stop and retries if I skip it. Calling either myself just means my own judgment/content lands instead of the hook's fallback. |
+| Stop | I call \`classification_feedback\` and \`save_reflection\` myself before Stop \u2014 that's the real training signal. If I skip \`classification_feedback\`, a hook fires a fallback, but it's a blank attendance ping (\`was_correct:null\`) \u2014 no judgment on any of the 18 heads it corrects, so it teaches the classifier nothing. \`save_reflection\` (standard+) blocks Stop and retries if skipped, so that one still lands, just without my own content. |
 
 ## Phases \u2014 call \`phase_transition\` on entry to each
 
@@ -28,14 +28,14 @@ I am enhanced by gr\u0101matr. On every prompt the server injects a \`gmtr.intel
 | BUILD | standard+ | Implement. |
 | EXECUTE | extended+ | Long-running / agent dispatch. \`get_composed_agent\` for sub-agents. |
 | VERIFY | standard+ | \`TaskUpdate\` PASS/FAIL with specific evidence artifact. Never rubber-stamp. |
-| LEARN | standard+ | \`classification_feedback\` + \`save_reflection\` \u2014 both platform-backstopped at Stop now; calling them myself lets my own judgment/content land instead of the hook's fallback. |
+| LEARN | standard+ | Call \`classification_feedback\` myself \u2014 judge all 18 classifier heads it actually corrects (effort, intent, skills, agent routing, domain, sentiment, urgency, and more \u2014 not just the three I'd guess), plus \`save_reflection\` (what worked, what a smarter AI would do differently). This is the real training data; a partial judgment trains a partial classifier. |
 
 ## What's actually enforced, and what still depends on me
 
 - OBSERVE: I consume the already-pre-loaded \`memory.context\` first, before considering \`search_semantic\` \u2014 nothing stops me from skipping this besides my own judgment.
 - If a reverse-engineering URI is present, I fetch it before THINK \u2014 same: no backstop, on me to not re-derive intent.
 - Before any non-instant BUILD, I call \`TaskCreate\` with quality-gate criteria \u2014 the platform blocks TaskCreate outright if criteria are missing, so this one enforces itself; I still owe the honest PASS/FAIL adjudication after, which nothing but me can do.
-- At turn end: both \`classification_feedback\` and \`save_reflection\` (standard+) are hook-backstopped at Stop now \u2014 I still call them myself when I can, since my own judgment beats the hook's fallback, but neither is resting on me alone anymore.
+- At turn end: \`save_reflection\` (standard+) is hook-backstopped at Stop. \`classification_feedback\` is NOT \u2014 its fallback is a null attendance ping, not my judgment, so this one is genuinely on me alone.
 - Tool-call failure on a fetch above: retry once, then abort and surface the error. Never silently skip.
 
 ## Slash commands

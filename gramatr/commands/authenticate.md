@@ -5,8 +5,9 @@ allowed-tools: mcp__plugin_gramatr_gramatr__gramatr_authenticate
 
 # /gramatr:authenticate
 
-Discoverable entry point into the RFC 8628 device-flow login. `/gramatr:login`
-is an identical alias — both invoke this same flow.
+Discoverable entry point into the RFC 8628 device-flow login. (The former
+`/gramatr:login` alias was retired in the 2026-10-20 slash-command cleanup —
+this is now the single device-flow login command.)
 
 The underlying `gramatr_authenticate` MCP tool is bounded to one network
 round-trip per call (#5189 — it used to block silently for up to 15 minutes;

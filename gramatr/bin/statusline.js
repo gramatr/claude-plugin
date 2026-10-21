@@ -3114,14 +3114,6 @@ function composeWithContextUsage(serverText) {
     return serverText;
   return `${serverText} \u2502 ${segment}`;
 }
-function cacheStatuslineText(text) {
-  try {
-    const gmtrDir = (0, import_node_path8.join)(PROJECT_DIR, ".gramatr");
-    (0, import_node_fs7.mkdirSync)(gmtrDir, { recursive: true });
-    (0, import_node_fs7.writeFileSync)((0, import_node_path8.join)(gmtrDir, "statusline.txt"), text, "utf8");
-  } catch {
-  }
-}
 async function fetchAndWrite(url, headers) {
   try {
     const res = await fetch(url, {
@@ -3135,7 +3127,6 @@ async function fetchAndWrite(url, headers) {
     if (!text)
       return false;
     process.stdout.write(composeWithContextUsage(text));
-    cacheStatuslineText(text);
     return true;
   } catch {
     return false;
@@ -3164,19 +3155,8 @@ async function tryAuthenticated(gitState) {
   const url = `${apiV1Base(token.base_url)}/statusline?${gitStateQuery(gitState)}`;
   return fetchAndWrite(url, { ...bearerHeader(token), ...sessionHeader(token) });
 }
-function tryFileFallback() {
-  const path = (0, import_node_path8.join)(PROJECT_DIR, ".gramatr", "statusline.txt");
-  if (!(0, import_node_fs7.existsSync)(path))
-    return false;
-  try {
-    const text = (0, import_node_fs7.readFileSync)(path, "utf8").trim();
-    if (!text)
-      return false;
-    process.stdout.write(composeWithContextUsage(text));
-    return true;
-  } catch {
-    return false;
-  }
+function showDegraded() {
+  process.stdout.write(composeWithContextUsage("gr\u0101matr: degraded (no live connection)"));
 }
 async function main() {
   const ownStdin = await readOwnStdinPayload();
@@ -3206,7 +3186,7 @@ async function main() {
   const gitState = collectGitState(PROJECT_DIR);
   if (await tryAuthenticated(gitState))
     return;
-  tryFileFallback();
+  showDegraded();
 }
 main().catch(() => void 0);
 async function runStatusline(_args = []) {
