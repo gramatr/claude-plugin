@@ -28,20 +28,38 @@ by the Stop hook as it completes — by the time a user can type `/restore` (or
 `/clear`), the turn they just saw has already been sealed. There is no
 "did I save in time" risk here. If you decided something substantial this
 session that genuinely isn't reflected in any turn yet (rare — most work is),
-you can call `save_handoff` yourself first, but that's a judgment call, not a
+you can call `save` yourself first, but that's a judgment call, not a
 prerequisite this command enforces.
 
 ## What to do
 
-1. Resolve `project_id` the same way `/gramatr:gramatr handoff load` does:
+1. Resolve `project_id` the same way `/gramatr:handoff load` does:
    `.gramatr/project.json` → `.gramatr/git-context.json` →
    `gramatr_project_id` from the packet. If none resolve, say so plainly —
    "Nothing to restore yet, no project is resolved" — and stop.
 
 2. Read `client_session_id` from `.gramatr/session.json` in the current
    working directory (read-only; never write this file). Call
-   `load_handoff({ project_id, session_id, client_session_id })` and, if
+   `restore({ project_id, session_id, client_session_id })` and, if
    available, `ReadMcpResource("gramatr://project/recent-turns/<project_id>?n=10&client_session_id=<value>")`.
+
+   `restore`'s `status` field branches three ways here (#6926, plus the
+   auto-adopt-window follow-up to #6926):
+
+   - `status: "found"` with `auto_recovered: true` — the mandatory-pair
+     lookup missed for *this* client session, but a single prior session for
+     the project sealed moments ago (within the server's auto-adopt window)
+     and was re-served automatically. This is **not** a confirmation case —
+     the content is already in hand. Just say so plainly in the report (e.g.
+     "picked up automatically from a session sealed `<recovery_saved_at>`
+     under a different client session id") rather than asking anything.
+   - `status: "recovery_available"` — a prior session exists but sealed too
+     long ago to auto-adopt. Ask the user "Do you want to pick up the last
+     known client session for this project?" and, only on explicit
+     confirmation, re-call `restore` with
+     `client_session_id: recovery_client_session_id` from the response. On a
+     "no," treat it as `no_handoff` (below) rather than retrying.
+   - `status: "no_handoff"` — nothing to recover; go to Failure modes.
 
 3. **Verify before you report.** This is the whole point of the command: the
    saved material is a snapshot, not a live read. Before telling the user
@@ -50,13 +68,43 @@ prerequisite this command enforces.
    branch state. Say plainly what you verified and what, if anything, turned
    out stale. Never repeat a saved claim as current fact without that check.
 
-4. Report in plain, warm language — no alarm bells, no shouting:
+4. **Render the handoff first, exactly as `/gramatr:handoff show` does** —
+   same five headings, saved prose verbatim, before any of your own
+   commentary:
+
+   ```
+   ## Where we are
+   <where_we_are>
+
+   ## What shipped
+   <what_shipped>
+
+   ## What's next
+   <whats_next>
+
+   ## Key context
+   <key_context>
+
+   ## Don't forget
+   <dont_forget>
+   ```
+
+   Then follow it immediately with your verification report in plain, warm
+   language — no alarm bells, no shouting:
 
    ```
    Restored — <slug>
-     Handoff said: <one line from the saved where_we_are>
      Checked now:  <what you verified, and any mismatch found>
      Next:         <top whats_next item>
+   ```
+
+   When `auto_recovered: true` came back, add one more line naming what
+   happened, e.g.:
+
+   ```
+     Picked up:    auto-recovered from a session sealed <recovery_saved_at>
+                   (different client session id, close enough in time to
+                   adopt automatically — no confirmation needed)
    ```
 
    Then ask whether to continue with that, or do something else.

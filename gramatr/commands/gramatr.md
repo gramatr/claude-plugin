@@ -1,5 +1,5 @@
 ---
-description: Dispatch verbs — status, update, handoff save|load, project, statusline, setup, help. Single entry point for grāmatr client-side actions.
+description: Dispatch verbs — status, update, project, statusline, setup, help. Single entry point for grāmatr client-side actions.
 ---
 
 # /gramatr
@@ -29,14 +29,16 @@ prefix shown in the help table):
 
 - `/gramatr:gramatr` → verb is empty → show help
 - `/gramatr:gramatr help` → verb is `help` → show help
-- `/gramatr:gramatr handoff save` → verb is `handoff`, sub-arg is `save`
-- `/gramatr:gramatr handoff show` → verb is `handoff`, sub-arg is `show`
 - `/gramatr:gramatr status` → verb is `status`
 - `/gramatr:gramatr project list` → verb is `project`, sub-arg is `list`
 - `/gramatr:gramatr project fix gramatr/gramatr` → verb is `project`, sub-arg is `fix gramatr/gramatr`
 - `/gramatr:gramatr setup cursor` → verb is `setup`, sub-arg is `cursor`
 - `/gramatr:gramatr whoami` → verb is `whoami` → NOT a recognized dispatcher
   verb (#4855) → redirects to the standalone `/gramatr:whoami` command
+- `/gramatr:gramatr handoff save` → verb is `handoff` → NOT a recognized
+  dispatcher verb — `handoff` is a standalone command (promoted back out of
+  the dispatcher 2026-10-22; see "unknown verb" below) — redirects to
+  `/gramatr:handoff save`
 
 Normalize the verb to lowercase before matching.
 
@@ -53,16 +55,17 @@ Print this verb table verbatim, then stop:
 /gramatr:gramatr status                  → project pin, drift, version, session health
 /gramatr:gramatr update                  → plugin-vs-server version check + update step
 /gramatr:gramatr init                    → first-run: pin project + name + statusline
-/gramatr:gramatr handoff save|load|show  → session continuity (show = render, no resume)
 /gramatr:gramatr project [list|fix]      → pin repo / list projects / rehome drifted ones
 /gramatr:gramatr statusline              → toggle the statusLine
 /gramatr:gramatr setup cursor            → wire grāmatr's sessionStart hook into Cursor
 ```
 
-`whoami`, `recall`, `feedback`, `reflect`, and `authenticate` are
-standalone native commands only (#4855, #5193 for `authenticate`) — type `/`
-and pick `gramatr:whoami`, `gramatr:recall`, `gramatr:feedback`,
-`gramatr:reflect`, or `gramatr:authenticate`. They are NOT
+`whoami`, `recall`, `feedback`, `reflect`, `authenticate`, and `handoff` are
+standalone native commands only (#4855, #5193 for `authenticate`; `handoff`
+promoted back out of the dispatcher 2026-10-22, reversing the #3128 Phase 2
+consolidation specifically for this one verb) — type `/` and pick
+`gramatr:whoami`, `gramatr:recall`, `gramatr:feedback`, `gramatr:reflect`,
+`gramatr:authenticate`, or `gramatr:handoff save|load|show`. They are NOT
 dispatcher sub-verbs; `/gramatr:gramatr whoami` (etc.) is not a recognized
 verb — see "unknown verb" below.
 
@@ -194,140 +197,6 @@ Run in order:
 End by telling the user to restart Claude Code (or start a new session in
 this directory) so the SessionStart hook reads the new pin and passes
 `project_id` straight to `session_bootstrap`.
-
-### `handoff`
-
-You handle session continuity for the current project. Pick mode, resolve
-`project_id`, then call the matching MCP tool.
-
-#### Mode selection
-
-- If the user passed a sub-argument, honor it verbatim: `save` → SAVE,
-  `load` → LOAD, `show` → SHOW. No auto-detect.
-- Otherwise, auto-detect from this conversation:
-  - **SAVE mode** if there has been substantial work this session —
-    multiple turns of real activity, code changes, commits/PRs opened,
-    decisions made, files modified.
-  - **LOAD mode** if the conversation is fresh — first few turns, no
-    significant prior work in this session (typical right after a
-    session start or a `/clear`).
-- If genuinely ambiguous, ask the user: "save or load?" — do not guess.
-
-#### Resolve `project_id` (all modes; UUID, never a slug)
-
-The committed `.gramatr/project.json` pin is ALWAYS authoritative. Resolve in
-this order, stopping at the first that yields a UUID — but always note which
-source won, because the mismatch guard below depends on it:
-
-1. Read `.gramatr/project.json` in the repo root → `project_id` (+ `slug`).
-   This is the **pin** and it wins whenever it is present.
-2. Read `.gramatr/git-context.json` (written by SessionStart) → `project_id`.
-3. Read `gramatr_project_id` from the latest `gmtr.intelligence.contract.v2`
-   packet for this turn.
-
-If none yield a UUID, tell the user to run `/gramatr:gramatr project` first
-and stop. Do not pass a slug or placeholder.
-
-#### Pin-vs-resolved mismatch guard (run before any save/load/show)
-
-After resolving, ALSO read `gramatr_project_id` from this turn's
-`gmtr.intelligence.contract.v2` packet and compare it to the **pin's**
-`project_id` (the value from `.gramatr/project.json`).
-
-- If there is no committed pin, skip this guard — there is nothing to defend.
-- If the pin and the packet `gramatr_project_id` are equal, proceed silently.
-- If they DIFFER, do NOT silently load, save, or show. Surface this prompt and
-  WAIT for the user's choice — never auto-pick:
-
-  > Handoff is keyed to the committed project `<pin-slug>` (`<pin-id>`), but
-  > this session resolved to `<packet-id>`. Load/save against the pin
-  > (recommended), the resolved id, or cancel?
-
-  Use the pin's `project_id` only on "pin", the packet's `gramatr_project_id`
-  only on "resolved", and abort the verb on "cancel". Never load or save the
-  wrong project.
-
-#### SAVE mode
-
-Compose all 5 sections below from this conversation. Be specific — the
-next session reads this verbatim.
-
-- **`where_we_are`** — current branch, latest commit, server/test status,
-  what just happened in this session. **First-sentence contract:** the FIRST
-  SENTENCE of this section becomes the user-visible checkpoint summary on the
-  statusline (first sentence only, ≤80 chars, derived verbatim). Lead with the
-  single most important current fact (e.g. "v0.24.2 released; #3555 coverage
-  fix is the open thread") — NEVER a timestamp, vibe, or label like
-  "~07:31Z, deep multi-hour session".
-- **`what_shipped`** — numbered list of commits, PRs, deploys, tags that
-  landed this session. Include PR/issue numbers.
-- **`whats_next`** — priority-ordered list of next actions with issue
-  numbers. Top item is what the next session picks up first.
-- **`key_context`** — non-obvious facts the next agent MUST know that
-  are not in code or git history (decisions made in conversation,
-  constraints, blocked dependencies).
-- **`dont_forget`** — recurring rules, gotchas, or hazards the agent
-  has been violating or is at risk of violating.
-
-Call the MCP tool `save_handoff` with `project_id` + all 5 sections.
-Include `platform: "claude-code"` and, if known, `branch` and
-`session_id`. Confirm with one line naming the project and the top
-`whats_next` item.
-
-#### LOAD mode
-
-Call the MCP tool `load_handoff` with `project_id`.
-
-If a handoff was returned, render it as markdown with these headings,
-preserving the saved prose verbatim:
-
-```
-## Where we are
-<where_we_are>
-
-## What shipped
-<what_shipped>
-
-## What's next
-<whats_next>
-
-## Key context
-<key_context>
-
-## Don't forget
-<dont_forget>
-```
-
-If the tool returns no handoff (none yet saved for this project), say so
-plainly: "No handoff found for this project — this looks like a fresh
-start." Do not error, retry, or fabricate sections. Then add one hint:
-
-> If this project was recently rehomed or drifted, the handoff may live
-> under a pre-rehome `project_id` — run `/gramatr:gramatr project fix` to reunite it.
-
-After rendering, ask the user whether to proceed with the top item from
-`whats_next` or pick something else. Do not start work without
-confirmation.
-
-#### SHOW mode
-
-Read-only. Renders the latest saved handoff WITHOUT offering to resume —
-the difference from LOAD is that SHOW never asks "proceed with the top item?"
-and never starts work.
-
-Call the MCP tool `load_handoff` with `project_id` (the same read-only tool
-LOAD uses). If a handoff was returned, render it with the identical five
-headings LOAD uses (`## Where we are`, `## What shipped`, `## What's next`,
-`## Key context`, `## Don't forget`), preserving the saved prose verbatim.
-
-If the tool returns no handoff, say plainly: "No handoff found for this
-project." and add the same rehome hint as LOAD:
-
-> If this project was recently rehomed or drifted, the handoff may live
-> under a pre-rehome `project_id` — run `/gramatr:gramatr project fix` to reunite it.
-
-Then STOP. Do not ask to resume, do not propose next actions, do not start
-work.
 
 ### `project`
 
@@ -579,13 +448,13 @@ sticking automatically.
 
 ### unknown verb
 
-If the verb is `whoami`, `recall`, `feedback`, `reflect`, or `authenticate`
-(#4855, #5193 — these are standalone commands only, not dispatcher
+If the verb is `whoami`, `recall`, `feedback`, `reflect`, `authenticate`, or
+`handoff` (#4855, #5193 — these are standalone commands only, not dispatcher
 sub-verbs), print one line naming the standalone command and stop:
 
-> `whoami`/`recall`/`feedback`/`reflect`/`authenticate` are standalone
-> commands, not `gramatr` sub-verbs — run `/gramatr:<verb>` instead (e.g.
-> `/gramatr:whoami`, `/gramatr:authenticate`).
+> `whoami`/`recall`/`feedback`/`reflect`/`authenticate`/`handoff` are
+> standalone commands, not `gramatr` sub-verbs — run `/gramatr:<verb>`
+> instead (e.g. `/gramatr:whoami`, `/gramatr:handoff save`).
 
 For any other unrecognized verb, print one line, then stop:
 
@@ -596,9 +465,14 @@ Do not guess what the user meant. Do not call any tools.
 ## Notes
 
 - Phase 2 of #3128 migrated `/handoff`, `/gramatr-setup-project`, and
-  `/gramatr-statusline` into this verb shell; those legacy commands have
-  been removed. `/gramatr-cleanup` was retired in #3127 with no replacement
-  verb (legacy-only artifact).
+  `/gramatr-statusline` into this verb shell; those legacy commands were
+  removed at the time. `/gramatr-cleanup` was retired in #3127 with no
+  replacement verb (legacy-only artifact). **2026-10-22 reversal (explicit
+  user request):** `handoff` is promoted back out to its own standalone
+  command (`packages/mcp/commands/handoff.md`, reached as
+  `/gramatr:handoff save|load|show`) — the consolidation into this
+  dispatcher is reversed for this one verb specifically; `setup-project` and
+  `statusline` stay consolidated here, unaffected.
 - Slash-command cleanup (2026-10-20) pruned redundant/legacy standalone
   commands, matching the earlier consolidation pattern:
   - `/gramatr:login` removed — it was a pure alias delegating to

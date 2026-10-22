@@ -2785,7 +2785,7 @@ function extractHandoffFromToolUse(content) {
   if (!Array.isArray(content))
     return null;
   for (const block of content) {
-    if (block?.type === "tool_use" && (block?.name === "save_handoff" || block?.name === "saveHandoff") && block?.input != null) {
+    if (block?.type === "tool_use" && (block?.name === "save" || block?.name === "save_handoff" || block?.name === "saveHandoff") && block?.input != null) {
       const input = block.input;
       const result = {};
       if (typeof input.where_we_are === "string" && input.where_we_are.trim())
