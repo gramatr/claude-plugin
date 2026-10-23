@@ -231,21 +231,62 @@ function patchRuntime(projectDir, patch) {
   }
   atomicWriteJson(paths.runtime, dir, next);
 }
-function mergeActiveSession(projectDir, patch) {
-  const prev = readRuntime(projectDir).active_session;
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function writeActiveSessionForKey(projectDir, clientSessionId, session) {
+  if (!clientSessionId)
+    return false;
+  const dest = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!dest)
+    return false;
+  try {
+    atomicWriteJson(dest, (0, import_node_path.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR), session);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function readActiveSessionForKey(projectDir, clientSessionId) {
+  if (!clientSessionId)
+    return null;
+  const path = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!path)
+    return null;
+  return readJson(path);
+}
+function mergeActiveSessionFields(prev, patch) {
   const defined = {};
   for (const [k, v] of Object.entries(patch)) {
     if (v !== void 0)
       defined[k] = v;
   }
-  const next = {
+  return {
     session_id: prev?.session_id ?? "",
     ...prev,
     ...defined
   };
+}
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const next = mergeActiveSessionFields(prev, patch);
   patchRuntime(projectDir, { active_session: next });
 }
-var import_node_child_process, import_node_fs, import_node_path, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+function mergeActiveSessionForKey(projectDir, clientSessionId, patch) {
+  const prev = readActiveSessionForKey(projectDir, clientSessionId);
+  const next = mergeActiveSessionFields(prev, patch);
+  return writeActiveSessionForKey(projectDir, clientSessionId, next);
+}
+var import_node_child_process, import_node_fs, import_node_path, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -267,6 +308,7 @@ var init_project_state = __esm({
     CORE_FILE = "project.json";
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
+    GRAMATR_SESSIONS_SUBDIR = "sessions";
   }
 });
 
@@ -2754,7 +2796,7 @@ __export(statusline_exports, {
   runStatusline: () => runStatusline
 });
 module.exports = __toCommonJS(statusline_exports);
-var import_node_fs7 = require("node:fs");
+var import_node_fs8 = require("node:fs");
 var import_node_path8 = require("node:path");
 init_project_state();
 
@@ -2820,6 +2862,16 @@ function readSessionRoot(sessionId) {
   }
   return raw.project_root;
 }
+function peekSessionRootProjectId(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
   return (0, import_node_path2.join)(home, ".gramatr", "debug");
@@ -2853,6 +2905,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
 }
 var REGISTRY_SAMPLE_CAP = 200;
 function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
   if (opts.sessionId) {
     const hit = readSessionRoot(opts.sessionId);
     if (hit) {
@@ -2862,11 +2915,25 @@ function resolveSessionRoot(opts) {
   } else {
     recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
   }
-  return resolveProjectDir({
-    cwd: opts.cwd,
-    clientType: opts.clientType,
-    canonicalizeWorktree: true
-  });
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/bin/statusline.js
@@ -3021,6 +3088,154 @@ function formatContextUsageSegment(ctxFile, limit) {
   return `\u25D4 ${pct}% ctx (${usedK}K/${limitK}K)`;
 }
 
+// dist/hooks/lib/process-pin.js
+var import_node_crypto4 = require("node:crypto");
+var import_node_child_process5 = require("node:child_process");
+var import_node_fs7 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs7.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs7.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs7.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process5.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs7.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto4.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
 // dist/bin/statusline.js
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
 var FETCH_TIMEOUT_MS = 2e3;
@@ -3033,7 +3248,7 @@ async function readOwnStdinPayload() {
     return empty;
   let raw;
   try {
-    raw = (0, import_node_fs7.readFileSync)(0, "utf8");
+    raw = (0, import_node_fs8.readFileSync)(0, "utf8");
   } catch {
     return empty;
   }
@@ -3065,10 +3280,10 @@ function getSessionId() {
   if (typeof fromState === "string" && fromState)
     return fromState;
   const sessionFile = (0, import_node_path8.join)(PROJECT_DIR, ".gramatr", "session.json");
-  if (!(0, import_node_fs7.existsSync)(sessionFile))
+  if (!(0, import_node_fs8.existsSync)(sessionFile))
     return null;
   try {
-    const data = JSON.parse((0, import_node_fs7.readFileSync)(sessionFile, "utf8"));
+    const data = JSON.parse((0, import_node_fs8.readFileSync)(sessionFile, "utf8"));
     return typeof data.session_id === "string" && data.session_id ? data.session_id : null;
   } catch {
     return null;
@@ -3077,33 +3292,40 @@ function getSessionId() {
 function getSessionModel() {
   if (ownStdinModel)
     return ownStdinModel;
+  const fromSidecar = readActiveSessionForKey(PROJECT_DIR, getProcessPin()?.value)?.model;
+  if (typeof fromSidecar === "string" && fromSidecar)
+    return fromSidecar;
   const state = readProjectState(PROJECT_DIR);
   const fromState = state?.active_session?.model;
   if (typeof fromState === "string" && fromState)
     return fromState;
   const sessionFile = (0, import_node_path8.join)(PROJECT_DIR, ".gramatr", "session.json");
-  if (!(0, import_node_fs7.existsSync)(sessionFile))
+  if (!(0, import_node_fs8.existsSync)(sessionFile))
     return "";
   try {
-    const data = JSON.parse((0, import_node_fs7.readFileSync)(sessionFile, "utf8"));
+    const data = JSON.parse((0, import_node_fs8.readFileSync)(sessionFile, "utf8"));
     return typeof data.model === "string" ? data.model : "";
   } catch {
     return "";
   }
 }
 function readCtxTokensFile(sessionId) {
-  const path = ctxTokensPath(PROJECT_DIR, sessionId);
-  if (!path || !(0, import_node_fs7.existsSync)(path))
+  let stateKey = sessionId;
+  try {
+    stateKey = getProcessPin()?.value ?? sessionId;
+  } catch {
+    stateKey = sessionId;
+  }
+  const path = ctxTokensPath(PROJECT_DIR, stateKey);
+  if (!path || !(0, import_node_fs8.existsSync)(path))
     return null;
   try {
-    return JSON.parse((0, import_node_fs7.readFileSync)(path, "utf8"));
+    return JSON.parse((0, import_node_fs8.readFileSync)(path, "utf8"));
   } catch {
     return null;
   }
 }
 function contextUsageSegment() {
-  if (!ownStdinSessionId)
-    return "";
   const ctxFile = readCtxTokensFile(ownStdinSessionId);
   const limit = getModelLimit(getSessionModel());
   return formatContextUsageSegment(ctxFile, limit);
@@ -3180,6 +3402,9 @@ async function main() {
           model: ownStdinModel
         });
       }
+      mergeActiveSessionForKey(PROJECT_DIR, getProcessPin()?.value, {
+        model: ownStdinModel
+      });
     } catch {
     }
   }

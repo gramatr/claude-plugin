@@ -146,12 +146,6 @@ init_config_runtime();
 var import_fs = require("fs");
 var import_path = require("path");
 init_config_runtime();
-
-// dist/hooks/lib/hook-state.js
-var import_node_sqlite = require("node:sqlite");
-init_config_runtime();
-
-// dist/hooks/lib/gramatr-hook-utils.js
 var HOME = getHomeDir();
 function resolveMcpUrl() {
   try {

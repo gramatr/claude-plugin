@@ -2946,6 +2946,16 @@ function readSessionRoot(sessionId) {
   }
   return raw.project_root;
 }
+function peekSessionRootProjectId(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
   return (0, import_node_path7.join)(home, ".gramatr", "debug");
@@ -2979,6 +2989,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
 }
 var REGISTRY_SAMPLE_CAP = 200;
 function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
   if (opts.sessionId) {
     const hit = readSessionRoot(opts.sessionId);
     if (hit) {
@@ -2988,11 +2999,25 @@ function resolveSessionRoot(opts) {
   } else {
     recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
   }
-  return resolveProjectDir({
-    cwd: opts.cwd,
-    clientType: opts.clientType,
-    canonicalizeWorktree: true
-  });
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/hooks/lib/turn-flush.js

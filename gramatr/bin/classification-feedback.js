@@ -4,9 +4,6 @@ var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -20,6 +17,17 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// dist/bin/classification-feedback.js
+var classification_feedback_exports = {};
+__export(classification_feedback_exports, {
+  runClassificationFeedbackHook: () => runClassificationFeedbackHook
+});
+module.exports = __toCommonJS(classification_feedback_exports);
+
+// dist/server/auth.js
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
 
 // dist/config-runtime.js
 function sanitizeEnvToken(raw) {
@@ -56,13 +64,16 @@ function getHomeDir() {
     return userProfile;
   return "";
 }
-var init_config_runtime = __esm({
-  "dist/config-runtime.js"() {
-    "use strict";
-  }
-});
+function getSessionRegistryTtlDaysFromEnv(defaultDays) {
+  const raw = process.env.GRAMATR_SESSION_REGISTRY_TTL_DAYS;
+  if (!raw || raw.length === 0)
+    return defaultDays;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : defaultDays;
+}
 
 // dist/hooks/lib/token-stale.js
+var TOKEN_STALE_ERROR_CODE = "token_stale";
 function isTokenStaleSignal(signal) {
   if (signal.httpStatus !== 401)
     return false;
@@ -104,15 +115,13 @@ function createSingleFlight() {
     return run;
   };
 }
-var TOKEN_STALE_ERROR_CODE;
-var init_token_stale = __esm({
-  "dist/hooks/lib/token-stale.js"() {
-    "use strict";
-    TOKEN_STALE_ERROR_CODE = "token_stale";
-  }
-});
 
 // dist/server/auth.js
+var WARNED_EXPIRY = /* @__PURE__ */ new Set();
+var RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
+var cachedToken = null;
+var cachedExpiresAt = null;
+var renewalInProgress = false;
 function getConfigPath() {
   const gramatrDir = getGramatrDirFromEnv();
   if (gramatrDir) {
@@ -188,6 +197,7 @@ function refreshToken() {
   cachedExpiresAt = expiresAt;
   return cachedToken;
 }
+var renewSingleFlight = createSingleFlight();
 async function renewToken() {
   return renewSingleFlight(renewTokenInner);
 }
@@ -262,32 +272,6 @@ function getServerUrl() {
   const config = readConfig();
   return (config?.server_url || "https://api.gramatr.com").replace(/\/mcp\/?$/, "");
 }
-var import_node_fs, import_node_path, WARNED_EXPIRY, RENEWAL_WINDOW_MS, cachedToken, cachedExpiresAt, renewalInProgress, renewSingleFlight;
-var init_auth = __esm({
-  "dist/server/auth.js"() {
-    "use strict";
-    import_node_fs = require("node:fs");
-    import_node_path = require("node:path");
-    init_config_runtime();
-    init_token_stale();
-    WARNED_EXPIRY = /* @__PURE__ */ new Set();
-    RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
-    cachedToken = null;
-    cachedExpiresAt = null;
-    renewalInProgress = false;
-    renewSingleFlight = createSingleFlight();
-  }
-});
-
-// dist/bin/classification-feedback.js
-var classification_feedback_exports = {};
-__export(classification_feedback_exports, {
-  runClassificationFeedbackHook: () => runClassificationFeedbackHook
-});
-module.exports = __toCommonJS(classification_feedback_exports);
-
-// dist/proxy/remote-client.js
-init_auth();
 
 // dist/hooks/generated/hook-timeouts.js
 var REMOTE_TOOL_CALL_TIMEOUT_MS = 3e4;
@@ -389,7 +373,6 @@ async function withBackoff(fn, opts = {}) {
 }
 
 // dist/proxy/remote-client.js
-init_token_stale();
 var DEBUG = !!process.env.GRAMATR_DEBUG;
 var HOT_PATH_BACKOFF = { attempts: 3, baseMs: 200, capMs: 2e3 };
 var TransientHttpError = class extends Error {
@@ -580,245 +563,564 @@ async function parseSSEResponse(response) {
   throw new Error(`Could not parse remote response: ${text.substring(0, 200)}`);
 }
 
+// dist/hooks/lib/classification-cache.js
+var import_node_fs3 = require("node:fs");
+var import_node_path4 = require("node:path");
+
 // dist/hooks/lib/hook-state.js
-var import_node_sqlite = require("node:sqlite");
-var import_node_fs2 = require("node:fs");
 var import_node_path2 = require("node:path");
-init_config_runtime();
-var Database = import_node_sqlite.DatabaseSync;
-var _db = null;
-var _filesystemAvailable = true;
-function getDbPath() {
-  if (process.env.GRAMATR_STATE_DB)
-    return process.env.GRAMATR_STATE_DB;
+function getGramatrStateDir() {
   const dir = getGramatrDirFromEnv() || (0, import_node_path2.join)(getHomeDir(), ".gramatr");
-  return (0, import_node_path2.join)(dir, "state.db");
+  return (0, import_node_path2.join)(dir, ".state");
 }
-function getDb() {
-  if (_db)
-    return _db;
-  const path = getDbPath();
-  if (path !== ":memory:") {
-    try {
-      const dir = (0, import_node_path2.dirname)(path);
-      if (!(0, import_node_fs2.existsSync)(dir))
-        (0, import_node_fs2.mkdirSync)(dir, { recursive: true });
-    } catch {
-      _filesystemAvailable = false;
-    }
+
+// dist/hooks/lib/project-state.js
+var import_node_child_process = require("node:child_process");
+var import_node_fs2 = require("node:fs");
+var import_node_path3 = require("node:path");
+var GRAMATR_DIR = ".gramatr";
+function findProjectRoot(startDir = process.cwd()) {
+  let dir = startDir;
+  for (; ; ) {
+    if ((0, import_node_fs2.existsSync)((0, import_node_path3.join)(dir, GRAMATR_DIR)))
+      return dir;
+    const parent = (0, import_node_path3.dirname)(dir);
+    if (parent === dir)
+      return startDir;
+    dir = parent;
   }
-  try {
-    _db = new Database(_filesystemAvailable ? path : ":memory:");
-    if (_filesystemAvailable && path !== ":memory:") {
-      try {
-        (0, import_node_fs2.chmodSync)(path, 384);
-      } catch {
+}
+function canonicalizeProjectRoot(dir) {
+  const gitEnv = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES"
+  ]) {
+    delete gitEnv[key];
+  }
+  const git = (args) => {
+    try {
+      return (0, import_node_child_process.execFileSync)("git", args, {
+        cwd: dir,
+        env: gitEnv,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const gitDir = git(["rev-parse", "--git-dir"]);
+  const commonDir = git(["rev-parse", "--git-common-dir"]);
+  if (!gitDir || !commonDir)
+    return dir;
+  const abs = (p) => p.startsWith("/") ? p : (0, import_node_path3.join)(dir, p);
+  const absGitDir = abs(gitDir);
+  const absCommonDir = abs(commonDir);
+  if (absGitDir === absCommonDir)
+    return dir;
+  const mainRoot = (0, import_node_path3.dirname)(absCommonDir);
+  if ((0, import_node_fs2.existsSync)((0, import_node_path3.join)(mainRoot, GRAMATR_DIR)))
+    return mainRoot;
+  return dir;
+}
+var CLIENT_PROJECT_DIR_ENV = {
+  // gramatr-allow: c1
+  "claude-code": "CLAUDE_PROJECT_DIR",
+  // TODO(#3289): confirm Cursor's project-dir env var name when wiring the
+  // Cursor client. Placeholder constant — not yet read by any live client.
+  cursor: "CURSOR_PROJECT_DIR",
+  // TODO(#3289): confirm Windsurf's project-dir env var name.
+  windsurf: "WINDSURF_PROJECT_DIR",
+  // TODO(#3289): confirm Codex's project-dir env var name.
+  codex: "CODEX_PROJECT_DIR"
+};
+function resolveProjectDir(opts = {}) {
+  const winner = (() => {
+    if (opts.cwd && opts.cwd.length > 0)
+      return opts.cwd;
+    if (opts.clientType) {
+      const envName = CLIENT_PROJECT_DIR_ENV[opts.clientType];
+      if (envName) {
+        const value = process.env[envName];
+        if (value && value.length > 0)
+          return value;
       }
     }
-  } catch {
-    _filesystemAvailable = false;
-    _db = new Database(":memory:");
-  }
-  _db.exec("PRAGMA journal_mode = WAL");
-  _db.exec("PRAGMA synchronous = NORMAL");
-  _db.exec("PRAGMA wal_autocheckpoint = 1000");
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS session_context (
-      session_id        TEXT PRIMARY KEY,
-      user_id           TEXT,
-      project_id        TEXT,
-      interaction_id    TEXT,
-      entity_id         TEXT,
-      project_name      TEXT,
-      git_root          TEXT,
-      git_branch        TEXT,
-      git_remote        TEXT,
-      working_directory TEXT,
-      session_start     TEXT,
-      updated_at        TEXT NOT NULL,
-      client_type       TEXT,
-      agent_name        TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS turns (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id        TEXT NOT NULL,
-      client_session_id TEXT,
-      project_id        TEXT,
-      agent_name        TEXT,
-      turn_number       INTEGER,
-      timestamp         TEXT,
-      prompt            TEXT,
-      effort_level      TEXT,
-      intent_type       TEXT,
-      confidence        REAL,
-      tokens_saved      INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS directive_cache (
-      key        TEXT NOT NULL,
-      user_id    TEXT NOT NULL,
-      value_json TEXT NOT NULL,
-      cached_at  TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      PRIMARY KEY (key, user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS mutation_outbox (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      tool_name     TEXT NOT NULL,
-      args_json     TEXT NOT NULL,
-      created_at    TEXT NOT NULL,
-      replicated_at TEXT,
-      attempts      INTEGER NOT NULL DEFAULT 0,
-      last_error    TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS op_history (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id   TEXT NOT NULL,
-      tool         TEXT,
-      time_ms      INTEGER,
-      tokens_saved INTEGER,
-      timestamp    INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS latest_classification (
-      session_id            TEXT PRIMARY KEY,
-      classifier_model      TEXT,
-      classifier_time_ms    INTEGER,
-      tokens_saved          INTEGER,
-      savings_ratio         REAL,
-      effort                TEXT,
-      intent                TEXT,
-      confidence            REAL,
-      memory_delivered      INTEGER,
-      downstream_model      TEXT,
-      server_version        TEXT,
-      stage_timing          TEXT,
-      recorded_at           INTEGER NOT NULL,
-      original_prompt       TEXT,
-      pending_feedback      INTEGER DEFAULT 0,
-      feedback_submitted_at TEXT,
-      client_type           TEXT,
-      agent_name            TEXT,
-      memory_tier           TEXT,
-      memory_scope          TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS session_log (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id     TEXT,
-      project_id     TEXT,
-      ended_at       TEXT,
-      reason         TEXT,
-      commit_log     TEXT,
-      interaction_id TEXT,
-      entity_id      TEXT,
-      client_type    TEXT,
-      agent_name     TEXT,
-      synced_at      TEXT
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS session_log_session_id
-      ON session_log(session_id)
-      WHERE session_id IS NOT NULL;
-
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      slug TEXT NOT NULL,
-      git_remote TEXT,
-      directory TEXT,
-      org_id TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
-    CREATE INDEX IF NOT EXISTS idx_projects_directory ON projects(directory);
-
-    CREATE TABLE IF NOT EXISTS compacts (
-      id          TEXT PRIMARY KEY,
-      project_id  TEXT,
-      session_id  TEXT NOT NULL,
-      created_at  TEXT NOT NULL,
-      summary     TEXT,
-      turns_json  TEXT,
-      metadata_json TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_compacts_session ON compacts(session_id);
-    CREATE INDEX IF NOT EXISTS idx_compacts_project ON compacts(project_id);
-
-    CREATE TABLE IF NOT EXISTS packets (
-      id          TEXT PRIMARY KEY,
-      session_id  TEXT NOT NULL,
-      project_id  TEXT,
-      effort      TEXT,
-      intent      TEXT,
-      created_at  INTEGER NOT NULL,
-      payload     TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_packets_session ON packets(session_id, created_at DESC);
-  `);
-  const migrations = [
-    "ALTER TABLE session_context ADD COLUMN entity_id TEXT",
-    "ALTER TABLE session_context ADD COLUMN client_type TEXT",
-    "ALTER TABLE session_context ADD COLUMN agent_name TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN original_prompt TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN pending_feedback INTEGER DEFAULT 0",
-    "ALTER TABLE latest_classification ADD COLUMN feedback_submitted_at TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN client_type TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN agent_name TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN memory_tier TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN memory_scope TEXT",
-    "ALTER TABLE session_log ADD COLUMN interaction_id TEXT",
-    "ALTER TABLE session_log ADD COLUMN entity_id TEXT",
-    "ALTER TABLE session_log ADD COLUMN client_type TEXT",
-    "ALTER TABLE session_log ADD COLUMN agent_name TEXT",
-    "ALTER TABLE session_log ADD COLUMN synced_at TEXT",
-    // Unique index is safe to re-run (IF NOT EXISTS)
-    "CREATE UNIQUE INDEX IF NOT EXISTS session_log_session_id ON session_log(session_id) WHERE session_id IS NOT NULL",
-    "ALTER TABLE session_context ADD COLUMN user_id TEXT",
-    "ALTER TABLE session_context ADD COLUMN platform TEXT",
-    "ALTER TABLE session_context ADD COLUMN arch TEXT",
-    // #1214: cross-agent fields on turns for local SQLite intelligence cache
-    "ALTER TABLE turns ADD COLUMN project_id TEXT",
-    "ALTER TABLE turns ADD COLUMN client_session_id TEXT",
-    "ALTER TABLE turns ADD COLUMN agent_name TEXT",
-    // Orchestration task assignment — set by session-start when a task is picked up
-    "ALTER TABLE session_context ADD COLUMN orchestration_task_id TEXT",
-    // Orchestration workspace isolation — set at pickup alongside task_id
-    "ALTER TABLE session_context ADD COLUMN orch_access_scope TEXT",
-    "ALTER TABLE session_context ADD COLUMN orch_dir TEXT",
-    "ALTER TABLE session_context ADD COLUMN orch_working_dir TEXT"
-  ];
-  for (const sql of migrations) {
-    try {
-      _db.exec(sql);
-    } catch {
-    }
-  }
+    return findProjectRoot();
+  })();
+  return opts.canonicalizeWorktree ? canonicalizeProjectRoot(winner) : winner;
+}
+var CORE_FILE = "project.json";
+var RUNTIME_FILE = "runtime.json";
+function getStatePaths(projectDir) {
+  const dir = (0, import_node_path3.join)(projectDir, GRAMATR_DIR);
+  return {
+    core: (0, import_node_path3.join)(dir, CORE_FILE),
+    runtime: (0, import_node_path3.join)(dir, RUNTIME_FILE)
+  };
+}
+var SCHEMA_VERSION = 1;
+function readJson(filePath) {
   try {
-    _db.prepare("DELETE FROM turns WHERE timestamp IS NOT NULL AND timestamp < datetime('now', '-7 days')").run();
+    if (!(0, import_node_fs2.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_node_fs2.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function migrateCore(core) {
+  if (!core.schema_version || core.schema_version < SCHEMA_VERSION) {
+    return { ...core, schema_version: SCHEMA_VERSION };
+  }
+  return core;
+}
+function isNewShapeCore(raw) {
+  return raw !== null && typeof raw.schema_version === "number" && raw.project !== void 0 && typeof raw.project.project_id === "string";
+}
+function legacyCoreIdentity(projectDir) {
+  const dir = (0, import_node_path3.join)(projectDir, GRAMATR_DIR);
+  const legacyProject = readJson((0, import_node_path3.join)(dir, "project.json"));
+  const legacySettings = readJson((0, import_node_path3.join)(dir, "settings.json"));
+  const legacyGit = readJson((0, import_node_path3.join)(dir, "git-context.json"));
+  const project_id = legacyProject?.project_id ?? legacySettings?.project_id ?? "";
+  if (!project_id)
+    return null;
+  const project = {
+    project_id,
+    slug: legacyProject?.slug ?? legacySettings?.project_name ?? ""
+  };
+  if (legacySettings?.project_entity_id) {
+    project.project_entity_id = legacySettings.project_entity_id;
+  }
+  if (legacySettings?.project_name) {
+    project.display_name = legacySettings.project_name;
+  }
+  if (legacySettings?.previously_known_as && legacySettings.previously_known_as.length > 0) {
+    project.previously_known_as = legacySettings.previously_known_as;
+  }
+  const git_remote = legacyProject?.git_remote ?? legacyGit?.git_remote ?? legacyGit?.remote_url ?? void 0;
+  const drift = git_remote ? { git_remote } : {};
+  return { project, drift };
+}
+function legacyActiveSession(projectDir) {
+  const legacySession = readJson((0, import_node_path3.join)(projectDir, GRAMATR_DIR, "session.json"));
+  if (!legacySession?.session_id)
+    return void 0;
+  const active = { session_id: legacySession.session_id };
+  if (legacySession.client_session_id)
+    active.client_session_id = legacySession.client_session_id;
+  if (legacySession.interaction_id)
+    active.interaction_id = legacySession.interaction_id;
+  if (legacySession.client_type)
+    active.client_type = legacySession.client_type;
+  if (legacySession.written_at)
+    active.written_at = legacySession.written_at;
+  return active;
+}
+function synthesizeFromLegacy(projectDir) {
+  const identity = legacyCoreIdentity(projectDir);
+  if (!identity)
+    return null;
+  const state = {
+    schema_version: SCHEMA_VERSION,
+    project: identity.project,
+    drift: identity.drift,
+    recent_sessions: []
+  };
+  const active = legacyActiveSession(projectDir);
+  if (active)
+    state.active_session = active;
+  return state;
+}
+function readProjectState(projectDir) {
+  const paths = getStatePaths(projectDir);
+  const rawCore = readJson(paths.core);
+  const runtime = readJson(paths.runtime) ?? {};
+  if (isNewShapeCore(rawCore)) {
+    const core = migrateCore(rawCore);
+    return {
+      schema_version: core.schema_version,
+      project: core.project,
+      drift: core.drift ?? {},
+      active_session: runtime.active_session,
+      recent_sessions: runtime.recent_sessions ?? [],
+      statusline_cache: runtime.statusline_cache
+    };
+  }
+  const legacy = synthesizeFromLegacy(projectDir);
+  if (!legacy)
+    return null;
+  return {
+    ...legacy,
+    active_session: runtime.active_session ?? legacy.active_session,
+    recent_sessions: runtime.recent_sessions ?? legacy.recent_sessions,
+    statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
+  };
+}
+var GRAMATR_SESSIONS_SUBDIR = "sessions";
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path3.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function readActiveSessionForKey(projectDir, clientSessionId) {
+  if (!clientSessionId)
+    return null;
+  const path = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!path)
+    return null;
+  return readJson(path);
+}
+
+// dist/hooks/lib/classification-cache.js
+var CLASSIFICATION_SUBDIR = "classification";
+function classificationCacheKeyPath(sessionId) {
+  const name = activeSessionKeyFileName(sessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path4.join)(getGramatrStateDir(), CLASSIFICATION_SUBDIR, name);
+}
+function setLatestClassification(record) {
+  const dest = classificationCacheKeyPath(record.session_id);
+  if (!dest)
+    return;
+  try {
+    const dir = (0, import_node_path4.dirname)(dest);
+    if (!(0, import_node_fs3.existsSync)(dir))
+      (0, import_node_fs3.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const tmp = `${dest}.tmp.${process.pid}`;
+    (0, import_node_fs3.writeFileSync)(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs3.renameSync)(tmp, dest);
   } catch {
   }
-  return _db;
 }
 function getLatestClassification(sessionId) {
-  const row = getDb().prepare("SELECT * FROM latest_classification WHERE session_id = ?").get(sessionId);
-  if (!row)
+  const path = classificationCacheKeyPath(sessionId);
+  if (!path)
     return null;
-  return { ...row, pending_feedback: row.pending_feedback === 1 };
+  try {
+    const raw = (0, import_node_fs3.readFileSync)(path, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 function markClassificationFeedbackSubmitted(sessionId, submittedAt) {
-  const ts = submittedAt ?? (/* @__PURE__ */ new Date()).toISOString();
-  getDb().prepare(`
-    UPDATE latest_classification
-    SET pending_feedback = 0, feedback_submitted_at = ?
-    WHERE session_id = ?
-  `).run(ts, sessionId);
+  const prev = getLatestClassification(sessionId);
+  if (!prev)
+    return;
+  setLatestClassification({
+    ...prev,
+    pending_feedback: false,
+    feedback_submitted_at: submittedAt ?? (/* @__PURE__ */ new Date()).toISOString()
+  });
+}
+
+// dist/hooks/lib/process-pin.js
+var import_node_crypto = require("node:crypto");
+var import_node_child_process2 = require("node:child_process");
+var import_node_fs4 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs4.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs4.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs4.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process2.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs4.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
+// dist/hooks/lib/session-root-registry.js
+var import_node_fs5 = require("node:fs");
+var import_node_path5 = require("node:path");
+var DEFAULT_REGISTRY_TTL_DAYS = 14;
+function registryTtlMs() {
+  const days = getSessionRegistryTtlDaysFromEnv(DEFAULT_REGISTRY_TTL_DAYS);
+  return days * 24 * 60 * 60 * 1e3;
+}
+function registryDir() {
+  return (0, import_node_path5.join)(getHomeDir(), ".gramatr", "sessions");
+}
+function sessionFileName(sessionId) {
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.json`;
+}
+function sessionRootPath(sessionId) {
+  const name = sessionFileName(sessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path5.join)(registryDir(), name);
+}
+function readRaw(path) {
+  try {
+    if (!(0, import_node_fs5.existsSync)(path))
+      return null;
+    return JSON.parse((0, import_node_fs5.readFileSync)(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function readSessionRoot(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.project_root !== "string" || raw.project_root.length === 0) {
+    return null;
+  }
+  const ttlMs = registryTtlMs();
+  if (ttlMs > 0 && typeof raw.last_seen_at === "string" && raw.last_seen_at.length > 0) {
+    const lastSeen = Date.parse(raw.last_seen_at);
+    if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
+      try {
+        (0, import_node_fs5.rmSync)(path, { force: true });
+      } catch {
+      }
+      return null;
+    }
+  }
+  if (!(0, import_node_fs5.existsSync)(raw.project_root)) {
+    try {
+      (0, import_node_fs5.rmSync)(path, { force: true });
+    } catch {
+    }
+    return null;
+  }
+  return raw.project_root;
+}
+function peekSessionRootProjectId(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
+function registryDebugDir() {
+  const home = getHomeDir() || "/tmp";
+  return (0, import_node_path5.join)(home, ".gramatr", "debug");
+}
+function recordRegistryResolution(resolution, sessionId, clientType) {
+  if (resolution === "hit")
+    return;
+  const sample = {
+    ts: (/* @__PURE__ */ new Date()).toISOString(),
+    session_id: sessionId ?? null,
+    client_type: clientType ?? null,
+    resolution
+  };
+  try {
+    const dir = registryDebugDir();
+    if (!(0, import_node_fs5.existsSync)(dir))
+      (0, import_node_fs5.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path5.join)(dir, "registry-resolution.jsonl");
+    const line = JSON.stringify(sample);
+    let existing = [];
+    if ((0, import_node_fs5.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs5.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    }
+    existing.push(line);
+    if (existing.length > REGISTRY_SAMPLE_CAP) {
+      existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
+    }
+    (0, import_node_fs5.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+  } catch {
+  }
+}
+var REGISTRY_SAMPLE_CAP = 200;
+function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
+  if (opts.sessionId) {
+    const hit = readSessionRoot(opts.sessionId);
+    if (hit) {
+      return hit;
+    }
+    recordRegistryResolution("miss", opts.sessionId, opts.clientType);
+  } else {
+    recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
+  }
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/hooks/lib/feedback.js
+function resolveClientSessionId(projectDir) {
+  try {
+    const ownPinValue = getProcessPin()?.value;
+    return (ownPinValue && readActiveSessionForKey(projectDir, ownPinValue) ? ownPinValue : readProjectState(projectDir)?.active_session?.client_session_id) || void 0;
+  } catch {
+    return void 0;
+  }
+}
 async function submitPendingClassificationFeedback(options) {
   const last = getLatestClassification(options.sessionId);
   if (!last?.pending_feedback) {
@@ -828,6 +1130,8 @@ async function submitPendingClassificationFeedback(options) {
   if (!originalPrompt) {
     return { submitted: false, reason: "missing_original_prompt" };
   }
+  const projectDir = options.projectDir ?? resolveSessionRoot({ sessionId: options.sessionId, clientType: options.clientType });
+  const clientSessionId = resolveClientSessionId(projectDir);
   try {
     await callRemoteTool("classification_feedback", {
       timestamp: new Date(last.recorded_at).toISOString(),
@@ -836,7 +1140,7 @@ async function submitPendingClassificationFeedback(options) {
       downstream_provider: options.downstreamProvider,
       client_type: options.clientType,
       agent_name: options.agentName
-    });
+    }, clientSessionId ? { clientSessionId } : void 0);
     markClassificationFeedbackSubmitted(options.sessionId);
     return { submitted: true, reason: "submitted" };
   } catch (err) {

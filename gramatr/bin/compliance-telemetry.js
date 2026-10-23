@@ -35,6 +35,27 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // dist/config-runtime.js
+function sanitizeEnvToken(raw) {
+  if (!raw)
+    return "";
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed === "null" || trimmed === "undefined")
+    return "";
+  return raw;
+}
+function getGramatrTokenFromEnv() {
+  const current = sanitizeEnvToken(process.env.GRAMATR_TOKEN);
+  if (current)
+    return current;
+  const legacy = sanitizeEnvToken(process.env.AIOS_MCP_TOKEN);
+  if (legacy)
+    return legacy;
+  return null;
+}
+function getGramatrUrlFromEnv() {
+  const url = process.env.GRAMATR_URL;
+  return url && url.length > 0 ? url : null;
+}
 function getGramatrDirFromEnv() {
   const dir = process.env.GRAMATR_DIR;
   return dir && dir.length > 0 ? dir : null;
@@ -2720,234 +2741,349 @@ __export(compliance_telemetry_exports, {
 });
 module.exports = __toCommonJS(compliance_telemetry_exports);
 
-// dist/hooks/lib/hook-state.js
-var import_node_sqlite = require("node:sqlite");
+// dist/server/auth.js
 var import_node_fs = require("node:fs");
 var import_node_path = require("node:path");
 init_config_runtime();
-var Database = import_node_sqlite.DatabaseSync;
-var _db = null;
-var _filesystemAvailable = true;
-function getDbPath() {
-  if (process.env.GRAMATR_STATE_DB)
-    return process.env.GRAMATR_STATE_DB;
-  const dir = getGramatrDirFromEnv() || (0, import_node_path.join)(getHomeDir(), ".gramatr");
-  return (0, import_node_path.join)(dir, "state.db");
+
+// dist/hooks/lib/token-stale.js
+function createSingleFlight() {
+  let inFlight = null;
+  return (fn) => {
+    if (inFlight)
+      return inFlight;
+    const run = fn();
+    inFlight = run;
+    void run.then(() => {
+      if (inFlight === run)
+        inFlight = null;
+    }, () => {
+      if (inFlight === run)
+        inFlight = null;
+    });
+    return run;
+  };
 }
-function getDb() {
-  if (_db)
-    return _db;
-  const path = getDbPath();
-  if (path !== ":memory:") {
-    try {
-      const dir = (0, import_node_path.dirname)(path);
-      if (!(0, import_node_fs.existsSync)(dir))
-        (0, import_node_fs.mkdirSync)(dir, { recursive: true });
-    } catch {
-      _filesystemAvailable = false;
+
+// dist/server/auth.js
+var WARNED_EXPIRY = /* @__PURE__ */ new Set();
+var RENEWAL_WINDOW_MS = 6 * 60 * 60 * 1e3;
+var cachedToken = null;
+var cachedExpiresAt = null;
+var renewalInProgress = false;
+function getConfigPath() {
+  const gramatrDir = getGramatrDirFromEnv();
+  if (gramatrDir) {
+    return (0, import_node_path.join)((0, import_node_path.dirname)(gramatrDir), ".gramatr.json");
+  }
+  return (0, import_node_path.join)(getHomeDir(), ".gramatr.json");
+}
+function readConfig() {
+  try {
+    const raw = (0, import_node_fs.readFileSync)(getConfigPath(), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function writeConfig(config) {
+  try {
+    const path = getConfigPath();
+    (0, import_node_fs.writeFileSync)(path, JSON.stringify(config, null, 2), { mode: 384 });
+    (0, import_node_fs.chmodSync)(path, 384);
+  } catch {
+  }
+}
+function isExpired(expiresAt) {
+  if (expiresAt === null)
+    return false;
+  return Date.now() >= expiresAt;
+}
+function isNearExpiry(expiresAt) {
+  if (expiresAt === null)
+    return false;
+  return Date.now() >= expiresAt - RENEWAL_WINDOW_MS;
+}
+function getToken() {
+  const envKey = sanitizeEnvToken(process.env.GRAMATR_API_KEY);
+  if (envKey)
+    return envKey;
+  const envToken = getGramatrTokenFromEnv();
+  if (envToken)
+    return envToken;
+  if (cachedToken && isExpired(cachedExpiresAt)) {
+    cachedToken = null;
+    cachedExpiresAt = null;
+  }
+  if (!cachedToken) {
+    refreshToken();
+  }
+  if (cachedToken && isNearExpiry(cachedExpiresAt) && !renewalInProgress) {
+    const tokenSnap = cachedToken;
+    if (!WARNED_EXPIRY.has(tokenSnap.slice(-8))) {
+      WARNED_EXPIRY.add(tokenSnap.slice(-8));
+      process.stderr.write("[gramatr] Token nearing expiry \u2014 renewing in background\n");
+    }
+    void renewTokenBackground();
+  }
+  return cachedToken;
+}
+function refreshToken() {
+  const config = readConfig();
+  if (!config?.token) {
+    cachedToken = null;
+    cachedExpiresAt = null;
+    return null;
+  }
+  const expiresAt = config.token_expires_at ? Date.parse(config.token_expires_at) : null;
+  if (isExpired(expiresAt)) {
+    cachedToken = null;
+    cachedExpiresAt = null;
+    process.stderr.write("[gramatr] Stored token is expired \u2014 run `npx @gramatr/mcp login` to re-authenticate\n");
+    return null;
+  }
+  cachedToken = config.token;
+  cachedExpiresAt = expiresAt;
+  return cachedToken;
+}
+var renewSingleFlight = createSingleFlight();
+async function renewTokenBackground() {
+  if (renewalInProgress || !cachedToken)
+    return;
+  renewalInProgress = true;
+  try {
+    const serverUrl = getServerUrl();
+    const response = await fetch(`${serverUrl}/auth/token/renew`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cachedToken}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!response.ok) {
+      process.stderr.write(`[gramatr] Token renewal failed (HTTP ${response.status}) \u2014 re-login may be required
+`);
+      return;
+    }
+    const body = await response.json();
+    if (!body.access_token)
+      return;
+    const expiresIn = body.expires_in ?? 31536e3;
+    const newExpiresAt = new Date(Date.now() + expiresIn * 1e3).toISOString();
+    const config = readConfig() ?? {};
+    config.token = body.access_token;
+    config.token_expires_at = newExpiresAt;
+    writeConfig(config);
+    cachedToken = body.access_token;
+    cachedExpiresAt = Date.parse(newExpiresAt);
+    process.stderr.write("[gramatr] Token renewed successfully\n");
+  } catch {
+  } finally {
+    renewalInProgress = false;
+  }
+}
+function getServerUrl() {
+  const envUrl = getGramatrUrlFromEnv();
+  if (envUrl) {
+    return envUrl.replace(/\/mcp\/?$/, "");
+  }
+  const config = readConfig();
+  return (config?.server_url || "https://api.gramatr.com").replace(/\/mcp\/?$/, "");
+}
+
+// dist/hooks/generated/hook-timeouts.js
+var REMOTE_TOOL_CALL_TIMEOUT_MS = 3e4;
+
+// dist/proxy/lib/retry.js
+function isRetryable(err) {
+  if (err === null || err === void 0)
+    return false;
+  const status = extractStatus(err);
+  if (status !== void 0) {
+    if (status === 502 || status === 503 || status === 504 || status === 429)
+      return true;
+    if (status === 401 || status === 403 || status === 400)
+      return false;
+    if (status >= 500)
+      return true;
+    if (status >= 400)
+      return false;
+  }
+  const code = extractCode(err);
+  if (code) {
+    if (code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EAI_AGAIN" || code === "ECONNRESET" || code === "ENETUNREACH" || code === "EPIPE") {
+      return true;
     }
   }
+  const message = extractMessage(err).toLowerCase();
+  if (!message)
+    return false;
+  if (message.includes("abort") || message.includes("timeout") || message.includes("timed out")) {
+    return true;
+  }
+  if (message.includes("not connected") || message.includes("socket closed") || message.includes("econnreset")) {
+    return true;
+  }
+  if (message.includes("econnrefused") || message.includes("etimedout") || message.includes("eai_again") || message.includes("network")) {
+    return true;
+  }
+  return false;
+}
+function extractStatus(err) {
+  if (typeof err === "object" && err !== null && "status" in err) {
+    const s = err.status;
+    if (typeof s === "number")
+      return s;
+  }
+  return void 0;
+}
+function extractCode(err) {
+  if (typeof err === "object" && err !== null && "code" in err) {
+    const c = err.code;
+    if (typeof c === "string")
+      return c;
+  }
+  return void 0;
+}
+function extractMessage(err) {
+  if (err instanceof Error)
+    return err.message;
+  if (typeof err === "string")
+    return err;
+  if (typeof err === "object" && err !== null && "message" in err) {
+    const m = err.message;
+    if (typeof m === "string")
+      return m;
+  }
+  return "";
+}
+
+// dist/proxy/remote-client.js
+var DEBUG = !!process.env.GRAMATR_DEBUG;
+var HOT_PATH_BACKOFF = { attempts: 3, baseMs: 200, capMs: 2e3 };
+var TransientHttpError = class extends Error {
+  status;
+  retryAfterMs;
+  constructor(status, statusText, retryAfterMs) {
+    super(`Remote server error: HTTP ${status} ${statusText}`);
+    this.name = "TransientHttpError";
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+};
+var remoteBackoffOpts = {
+  ...HOT_PATH_BACKOFF,
+  isRetryable,
+  getRetryAfterMs: (err) => err instanceof TransientHttpError ? err.retryAfterMs : void 0
+};
+function debugLog(label, data) {
+  if (!DEBUG)
+    return;
+  const json = JSON.stringify(data, null, 2);
+  process.stderr.write(`[gramatr-debug] ${label}:
+${json}
+
+`);
+}
+var requestId = 0;
+async function callRemoteResource(uri, sessionContext) {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "resources/read",
+    params: { uri }
+  };
+  const response = await postToRemote(payload, sessionContext);
+  if (!response.ok) {
+    throw new Error(`Failed to read remote resource: HTTP ${response.status} ${response.statusText}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Remote resource error: ${body.error.message}`);
+  }
+  return body.result;
+}
+async function postToRemote(payload, sessionContext) {
+  const serverUrl = getServerUrl();
+  const token = getToken();
+  const url = `${serverUrl}/mcp`;
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream"
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  if (sessionContext?.sessionId) {
+    headers["Mcp-Session-Id"] = sessionContext.sessionId;
+  }
+  if (sessionContext?.projectId) {
+    headers["X-Gramatr-Project-Id"] = sessionContext.projectId;
+  }
+  if (sessionContext?.clientSessionId) {
+    headers["X-Gramatr-Client-Session"] = sessionContext.clientSessionId;
+  }
+  debugLog(`\u2192 POST ${url} [${payload.method}]`, {
+    ...payload,
+    // Redact large argument values in debug output
+    params: payload.params && typeof payload.params === "object" ? Object.fromEntries(Object.entries(payload.params).map(([k, v]) => [
+      k,
+      typeof v === "string" && v.length > 500 ? `${v.slice(0, 200)}... [${v.length} chars]` : v
+    ])) : payload.params
+  });
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(REMOTE_TOOL_CALL_TIMEOUT_MS)
+  });
+  debugLog(`\u2190 ${response.status} ${response.statusText} [${payload.method}]`, {
+    status: response.status,
+    headers: Object.fromEntries([...response.headers.entries()].filter(([k]) => !k.toLowerCase().includes("authorization")))
+  });
+  return response;
+}
+async function parseSSEResponse(response) {
+  const text = await response.text();
+  if (DEBUG) {
+    const preview = text.length > 2e3 ? `${text.slice(0, 2e3)}... [${text.length} chars]` : text;
+    debugLog("\u2190 response body", preview);
+  }
   try {
-    _db = new Database(_filesystemAvailable ? path : ":memory:");
-    if (_filesystemAvailable && path !== ":memory:") {
+    return JSON.parse(text);
+  } catch {
+  }
+  const lines = text.split("\n");
+  for (const line of lines) {
+    if (line.startsWith("data: ")) {
+      const data = line.slice(6);
       try {
-        (0, import_node_fs.chmodSync)(path, 384);
+        return JSON.parse(data);
       } catch {
       }
     }
-  } catch {
-    _filesystemAvailable = false;
-    _db = new Database(":memory:");
   }
-  _db.exec("PRAGMA journal_mode = WAL");
-  _db.exec("PRAGMA synchronous = NORMAL");
-  _db.exec("PRAGMA wal_autocheckpoint = 1000");
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS session_context (
-      session_id        TEXT PRIMARY KEY,
-      user_id           TEXT,
-      project_id        TEXT,
-      interaction_id    TEXT,
-      entity_id         TEXT,
-      project_name      TEXT,
-      git_root          TEXT,
-      git_branch        TEXT,
-      git_remote        TEXT,
-      working_directory TEXT,
-      session_start     TEXT,
-      updated_at        TEXT NOT NULL,
-      client_type       TEXT,
-      agent_name        TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS turns (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id        TEXT NOT NULL,
-      client_session_id TEXT,
-      project_id        TEXT,
-      agent_name        TEXT,
-      turn_number       INTEGER,
-      timestamp         TEXT,
-      prompt            TEXT,
-      effort_level      TEXT,
-      intent_type       TEXT,
-      confidence        REAL,
-      tokens_saved      INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS directive_cache (
-      key        TEXT NOT NULL,
-      user_id    TEXT NOT NULL,
-      value_json TEXT NOT NULL,
-      cached_at  TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      PRIMARY KEY (key, user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS mutation_outbox (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      tool_name     TEXT NOT NULL,
-      args_json     TEXT NOT NULL,
-      created_at    TEXT NOT NULL,
-      replicated_at TEXT,
-      attempts      INTEGER NOT NULL DEFAULT 0,
-      last_error    TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS op_history (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id   TEXT NOT NULL,
-      tool         TEXT,
-      time_ms      INTEGER,
-      tokens_saved INTEGER,
-      timestamp    INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS latest_classification (
-      session_id            TEXT PRIMARY KEY,
-      classifier_model      TEXT,
-      classifier_time_ms    INTEGER,
-      tokens_saved          INTEGER,
-      savings_ratio         REAL,
-      effort                TEXT,
-      intent                TEXT,
-      confidence            REAL,
-      memory_delivered      INTEGER,
-      downstream_model      TEXT,
-      server_version        TEXT,
-      stage_timing          TEXT,
-      recorded_at           INTEGER NOT NULL,
-      original_prompt       TEXT,
-      pending_feedback      INTEGER DEFAULT 0,
-      feedback_submitted_at TEXT,
-      client_type           TEXT,
-      agent_name            TEXT,
-      memory_tier           TEXT,
-      memory_scope          TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS session_log (
-      id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id     TEXT,
-      project_id     TEXT,
-      ended_at       TEXT,
-      reason         TEXT,
-      commit_log     TEXT,
-      interaction_id TEXT,
-      entity_id      TEXT,
-      client_type    TEXT,
-      agent_name     TEXT,
-      synced_at      TEXT
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS session_log_session_id
-      ON session_log(session_id)
-      WHERE session_id IS NOT NULL;
-
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      slug TEXT NOT NULL,
-      git_remote TEXT,
-      directory TEXT,
-      org_id TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
-    CREATE INDEX IF NOT EXISTS idx_projects_directory ON projects(directory);
-
-    CREATE TABLE IF NOT EXISTS compacts (
-      id          TEXT PRIMARY KEY,
-      project_id  TEXT,
-      session_id  TEXT NOT NULL,
-      created_at  TEXT NOT NULL,
-      summary     TEXT,
-      turns_json  TEXT,
-      metadata_json TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_compacts_session ON compacts(session_id);
-    CREATE INDEX IF NOT EXISTS idx_compacts_project ON compacts(project_id);
-
-    CREATE TABLE IF NOT EXISTS packets (
-      id          TEXT PRIMARY KEY,
-      session_id  TEXT NOT NULL,
-      project_id  TEXT,
-      effort      TEXT,
-      intent      TEXT,
-      created_at  INTEGER NOT NULL,
-      payload     TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_packets_session ON packets(session_id, created_at DESC);
-  `);
-  const migrations = [
-    "ALTER TABLE session_context ADD COLUMN entity_id TEXT",
-    "ALTER TABLE session_context ADD COLUMN client_type TEXT",
-    "ALTER TABLE session_context ADD COLUMN agent_name TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN original_prompt TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN pending_feedback INTEGER DEFAULT 0",
-    "ALTER TABLE latest_classification ADD COLUMN feedback_submitted_at TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN client_type TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN agent_name TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN memory_tier TEXT",
-    "ALTER TABLE latest_classification ADD COLUMN memory_scope TEXT",
-    "ALTER TABLE session_log ADD COLUMN interaction_id TEXT",
-    "ALTER TABLE session_log ADD COLUMN entity_id TEXT",
-    "ALTER TABLE session_log ADD COLUMN client_type TEXT",
-    "ALTER TABLE session_log ADD COLUMN agent_name TEXT",
-    "ALTER TABLE session_log ADD COLUMN synced_at TEXT",
-    // Unique index is safe to re-run (IF NOT EXISTS)
-    "CREATE UNIQUE INDEX IF NOT EXISTS session_log_session_id ON session_log(session_id) WHERE session_id IS NOT NULL",
-    "ALTER TABLE session_context ADD COLUMN user_id TEXT",
-    "ALTER TABLE session_context ADD COLUMN platform TEXT",
-    "ALTER TABLE session_context ADD COLUMN arch TEXT",
-    // #1214: cross-agent fields on turns for local SQLite intelligence cache
-    "ALTER TABLE turns ADD COLUMN project_id TEXT",
-    "ALTER TABLE turns ADD COLUMN client_session_id TEXT",
-    "ALTER TABLE turns ADD COLUMN agent_name TEXT",
-    // Orchestration task assignment — set by session-start when a task is picked up
-    "ALTER TABLE session_context ADD COLUMN orchestration_task_id TEXT",
-    // Orchestration workspace isolation — set at pickup alongside task_id
-    "ALTER TABLE session_context ADD COLUMN orch_access_scope TEXT",
-    "ALTER TABLE session_context ADD COLUMN orch_dir TEXT",
-    "ALTER TABLE session_context ADD COLUMN orch_working_dir TEXT"
-  ];
-  for (const sql of migrations) {
-    try {
-      _db.exec(sql);
-    } catch {
-    }
-  }
-  try {
-    _db.prepare("DELETE FROM turns WHERE timestamp IS NOT NULL AND timestamp < datetime('now', '-7 days')").run();
-  } catch {
-  }
-  return _db;
+  throw new Error(`Could not parse remote response: ${text.substring(0, 200)}`);
 }
-function getLatestClassification(sessionId) {
-  const row = getDb().prepare("SELECT * FROM latest_classification WHERE session_id = ?").get(sessionId);
-  if (!row)
+
+// dist/hooks/lib/classification-remote.js
+async function fetchRemoteClassificationSnapshot(clientSessionId) {
+  if (!clientSessionId)
     return null;
-  return { ...row, pending_feedback: row.pending_feedback === 1 };
+  try {
+    const result = await callRemoteResource("gramatr://session/classification", {
+      clientSessionId
+    });
+    const text = result?.contents?.[0]?.text;
+    if (typeof text !== "string" || !text)
+      return null;
+    const parsed = JSON.parse(text);
+    const effort = typeof parsed.effort === "string" ? parsed.effort : null;
+    const intent = typeof parsed.intent === "string" ? parsed.intent : null;
+    const confidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
+    const createdAt = typeof parsed.created_at === "number" ? parsed.created_at : null;
+    return { effort, intent, confidence, created_at: createdAt };
+  } catch {
+    return null;
+  }
 }
 
 // dist/hooks/lib/compliance-telemetry.js
@@ -2957,6 +3093,16 @@ init_config_runtime();
 
 // dist/hooks/lib/transcript-parser.js
 var import_node_fs2 = require("node:fs");
+function isGenuineUserTurnBoundary(entry) {
+  if (entry.type !== "user" && entry.type !== "human")
+    return false;
+  const content = entry.message?.content;
+  if (typeof content === "string")
+    return true;
+  if (!Array.isArray(content))
+    return true;
+  return !content.every((block) => block?.type === "tool_result");
+}
 function extractAssistantText(content) {
   if (typeof content === "string")
     return content.trim();
@@ -3025,7 +3171,7 @@ function extractPlanThenStopSignal(transcriptPath) {
         continue;
       try {
         const entry = JSON.parse(line);
-        if (entry.type === "user" || entry.type === "human") {
+        if (isGenuineUserTurnBoundary(entry)) {
           boundary = i;
           break;
         }
@@ -3264,6 +3410,16 @@ function readSessionRoot(sessionId) {
   }
   return raw.project_root;
 }
+function peekSessionRootProjectId(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
   return (0, import_node_path8.join)(home, ".gramatr", "debug");
@@ -3297,6 +3453,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
 }
 var REGISTRY_SAMPLE_CAP = 200;
 function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
   if (opts.sessionId) {
     const hit = readSessionRoot(opts.sessionId);
     if (hit) {
@@ -3306,11 +3463,25 @@ function resolveSessionRoot(opts) {
   } else {
     recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
   }
-  return resolveProjectDir({
-    cwd: opts.cwd,
-    clientType: opts.clientType,
-    canonicalizeWorktree: true
-  });
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/hooks/lib/hook-stdin.js
@@ -3351,7 +3522,7 @@ async function runComplianceTelemetryHook(input) {
       cwd: input.cwd,
       clientType: "claude-code"
     });
-    const effort = getLatestClassification(sessionId)?.effort ?? null;
+    const effort = (await fetchRemoteClassificationSnapshot(sessionId))?.effort ?? null;
     const evaluation = await evaluateCompliance({ transcriptPath, projectDir, effort });
     recordComplianceSample({ session_id: sessionId, ...evaluation });
   } catch {

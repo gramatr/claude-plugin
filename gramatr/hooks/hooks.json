@@ -190,14 +190,6 @@
             "type": "command",
             "command": "node",
             "args": [
-              "${CLAUDE_PLUGIN_ROOT}/bin/save-reflection-gate.js"
-            ],
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node",
-            "args": [
               "${CLAUDE_PLUGIN_ROOT}/bin/compliance-telemetry.js"
             ],
             "timeout": 5
@@ -206,7 +198,7 @@
             "type": "command",
             "command": "node",
             "args": [
-              "${CLAUDE_PLUGIN_ROOT}/bin/classification-feedback-gate.js"
+              "${CLAUDE_PLUGIN_ROOT}/bin/turn-exit-gate.js"
             ],
             "timeout": 5
           }

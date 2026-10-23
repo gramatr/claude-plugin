@@ -520,7 +520,27 @@ function readProjectState(projectDir) {
     statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
   };
 }
-var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path2.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function readActiveSessionForKey(projectDir, clientSessionId) {
+  if (!clientSessionId)
+    return null;
+  const path = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!path)
+    return null;
+  return readJson(path);
+}
+var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -542,6 +562,7 @@ var init_project_state = __esm({
     CORE_FILE = "project.json";
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
+    GRAMATR_SESSIONS_SUBDIR = "sessions";
   }
 });
 
@@ -2780,6 +2801,16 @@ function readSessionRoot(sessionId) {
   }
   return raw.project_root;
 }
+function peekSessionRootProjectId(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
   return (0, import_node_path6.join)(home, ".gramatr", "debug");
@@ -2813,6 +2844,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
 }
 var REGISTRY_SAMPLE_CAP = 200;
 function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
   if (opts.sessionId) {
     const hit = readSessionRoot(opts.sessionId);
     if (hit) {
@@ -2822,15 +2854,177 @@ function resolveSessionRoot(opts) {
   } else {
     recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
   }
-  return resolveProjectDir({
-    cwd: opts.cwd,
-    clientType: opts.clientType,
-    canonicalizeWorktree: true
-  });
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/bin/git-commit-handoff.js
 init_project_state();
+
+// dist/hooks/lib/process-pin.js
+var import_node_crypto4 = require("node:crypto");
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs7 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs7.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs7.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs7.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process4.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs7.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto4.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
 
 // dist/hooks/lib/hook-stdin.js
 async function readHookStdin() {
@@ -2900,7 +3094,8 @@ async function runGitCommitHandoff(input, fetchImpl = fetch, projectDir) {
       return { status: "no_token" };
     let clientSessionId;
     try {
-      clientSessionId = readProjectState(dir)?.active_session?.client_session_id;
+      const ownPinValue = getProcessPin({ agentId: input.agent_id })?.value;
+      clientSessionId = ownPinValue && readActiveSessionForKey(dir, ownPinValue) ? ownPinValue : readProjectState(dir)?.active_session?.client_session_id;
     } catch {
     }
     const url = `${apiV1Base(token.base_url)}/auto-save-handoff`;

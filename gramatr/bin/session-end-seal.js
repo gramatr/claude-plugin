@@ -520,7 +520,27 @@ function readProjectState(projectDir) {
     statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
   };
 }
-var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path2.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function readActiveSessionForKey(projectDir, clientSessionId) {
+  if (!clientSessionId)
+    return null;
+  const path = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!path)
+    return null;
+  return readJson(path);
+}
+var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -542,6 +562,7 @@ var init_project_state = __esm({
     CORE_FILE = "project.json";
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
+    GRAMATR_SESSIONS_SUBDIR = "sessions";
   }
 });
 
@@ -2810,6 +2831,16 @@ function readSessionRoot(sessionId) {
   }
   return raw.project_root;
 }
+function peekSessionRootProjectId(sessionId) {
+  const path = sessionRootPath(sessionId);
+  if (!path)
+    return null;
+  const raw = readRaw(path);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
   return (0, import_node_path7.join)(home, ".gramatr", "debug");
@@ -2843,6 +2874,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
 }
 var REGISTRY_SAMPLE_CAP = 200;
 function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
   if (opts.sessionId) {
     const hit = readSessionRoot(opts.sessionId);
     if (hit) {
@@ -2852,11 +2884,25 @@ function resolveSessionRoot(opts) {
   } else {
     recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
   }
-  return resolveProjectDir({
-    cwd: opts.cwd,
-    clientType: opts.clientType,
-    canonicalizeWorktree: true
-  });
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/hooks/lib/hook-stdin.js
@@ -2888,6 +2934,154 @@ async function readHookStdin() {
 // dist/hooks/lib/handoff-seal.js
 init_session_rest_token();
 init_project_state();
+
+// dist/hooks/lib/process-pin.js
+var import_node_crypto4 = require("node:crypto");
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs8 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs8.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs8.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs8.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process4.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs8.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto4.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
 
 // dist/hooks/lib/turn-flush.js
 init_session_rest_token();
@@ -2930,7 +3124,8 @@ async function sealHandoff(projectDir, input, fetchImpl = fetch) {
     return { status: "error" };
   let clientSessionId;
   try {
-    clientSessionId = readProjectState(projectDir)?.active_session?.client_session_id;
+    const ownPinValue = getProcessPin()?.value;
+    clientSessionId = ownPinValue && readActiveSessionForKey(projectDir, ownPinValue) ? ownPinValue : readProjectState(projectDir)?.active_session?.client_session_id;
   } catch {
   }
   const body = JSON.stringify({
@@ -2955,6 +3150,133 @@ async function sealHandoff(projectDir, input, fetchImpl = fetch) {
   }
 }
 
+// dist/hooks/lib/outbox-drain.js
+init_session_rest_token();
+
+// dist/hooks/lib/outbox-jsonl.js
+var import_node_fs9 = require("node:fs");
+var import_node_path8 = require("node:path");
+init_project_state();
+var GRAMATR_DIR4 = ".gramatr";
+var OUTBOX_SUBDIR = "outbox";
+function outboxKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId, "jsonl");
+  if (!name)
+    return null;
+  return (0, import_node_path8.join)(projectDir, GRAMATR_DIR4, OUTBOX_SUBDIR, name);
+}
+function listOutboxEntriesForKey(projectDir, clientSessionId) {
+  if (!clientSessionId)
+    return [];
+  const path = outboxKeyPath(projectDir, clientSessionId);
+  if (!path)
+    return [];
+  let raw;
+  try {
+    raw = (0, import_node_fs9.readFileSync)(path, "utf8");
+  } catch {
+    return [];
+  }
+  const entries = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim())
+      continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+    }
+  }
+  return entries;
+}
+function writeOutboxEntriesForKey(projectDir, clientSessionId, entries) {
+  const dest = outboxKeyPath(projectDir, clientSessionId);
+  if (!dest)
+    return;
+  try {
+    if (entries.length === 0) {
+      (0, import_node_fs9.rmSync)(dest, { force: true });
+      return;
+    }
+    const dir = (0, import_node_path8.dirname)(dest);
+    if (!(0, import_node_fs9.existsSync)(dir))
+      (0, import_node_fs9.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const tmp = `${dest}.tmp.${process.pid}`;
+    (0, import_node_fs9.writeFileSync)(tmp, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", {
+      encoding: "utf8",
+      mode: 384
+    });
+    (0, import_node_fs9.renameSync)(tmp, dest);
+  } catch {
+  }
+}
+function getOutboxPendingCountForKey(projectDir, clientSessionId) {
+  return listOutboxEntriesForKey(projectDir, clientSessionId).filter((e) => e.attempts < 3).length;
+}
+async function drainOutboxForKey(projectDir, clientSessionId, callTool) {
+  if (!clientSessionId)
+    return;
+  const entries = listOutboxEntriesForKey(projectDir, clientSessionId);
+  if (entries.length === 0)
+    return;
+  const remaining = [];
+  for (const entry of entries) {
+    if (entry.attempts >= 3) {
+      remaining.push(entry);
+      continue;
+    }
+    try {
+      await callTool(entry.tool_name, entry.args);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      remaining.push({ ...entry, attempts: entry.attempts + 1, last_error: detail });
+    }
+  }
+  writeOutboxEntriesForKey(projectDir, clientSessionId, remaining);
+}
+
+// dist/hooks/lib/outbox-drain.js
+var DRAIN_FETCH_TIMEOUT_MS = 3e3;
+var TOOL_ROUTES = {
+  create_entity: { method: "POST", path: "/entities" }
+};
+async function drainMutationOutboxOverRest(projectDir, clientSessionId) {
+  const safePendingCount = () => {
+    try {
+      return getOutboxPendingCountForKey(projectDir, clientSessionId);
+    } catch {
+      return 0;
+    }
+  };
+  try {
+    if (safePendingCount() === 0)
+      return 0;
+    const token = await resolveUsableSessionToken(projectDir);
+    if (!token)
+      return safePendingCount();
+    const base = apiV1Base(token.base_url);
+    const headers = { ...bearerHeader(token), ...sessionHeader(token), "content-type": "application/json" };
+    await drainOutboxForKey(projectDir, clientSessionId, async (toolName, args) => {
+      const route = TOOL_ROUTES[toolName];
+      if (!route) {
+        throw new Error(`outbox-drain: no REST route mapped for tool_name "${toolName}"`);
+      }
+      const res = await fetch(`${base}${route.path}`, {
+        method: route.method,
+        headers,
+        body: JSON.stringify(args),
+        signal: AbortSignal.timeout(DRAIN_FETCH_TIMEOUT_MS)
+      });
+      if (!res.ok) {
+        throw new Error(`outbox-drain: ${route.method} ${route.path} -> ${res.status}`);
+      }
+      return res.json().catch(() => ({}));
+    });
+    return safePendingCount();
+  } catch {
+    return safePendingCount();
+  }
+}
+
 // dist/bin/session-end-seal.js
 function resolveProjectDir2(sessionId) {
   return resolveSessionRoot({ sessionId, clientType: "claude-code" });
@@ -2974,7 +3296,11 @@ async function readStdinJson() {
 }
 async function main() {
   const input = await readStdinJson();
-  await runSessionEndSeal(input);
+  const projectDir = resolveProjectDir2(input.session_id);
+  await Promise.all([
+    runSessionEndSeal(input, fetch, projectDir),
+    drainMutationOutboxOverRest(projectDir, getProcessPin()?.value)
+  ]);
   process.stdout.write("{}");
 }
 if (process.env.GRAMATR_SESSION_END_SEAL_NO_AUTOSTART !== "1") {

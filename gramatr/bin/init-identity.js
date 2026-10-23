@@ -296,18 +296,46 @@ function patchRuntime(projectDir, patch) {
   }
   atomicWriteJson(paths.runtime, dir, next);
 }
-function mergeActiveSession(projectDir, patch) {
-  const prev = readRuntime(projectDir).active_session;
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path6.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function writeActiveSessionForKey(projectDir, clientSessionId, session) {
+  if (!clientSessionId)
+    return false;
+  const dest = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!dest)
+    return false;
+  try {
+    atomicWriteJson(dest, (0, import_node_path6.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR), session);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function mergeActiveSessionFields(prev, patch) {
   const defined = {};
   for (const [k, v] of Object.entries(patch)) {
     if (v !== void 0)
       defined[k] = v;
   }
-  const next = {
+  return {
     session_id: prev?.session_id ?? "",
     ...prev,
     ...defined
   };
+}
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const next = mergeActiveSessionFields(prev, patch);
   patchRuntime(projectDir, { active_session: next });
 }
 function readGitContext(projectDir) {
@@ -351,8 +379,15 @@ function persistBootstrapSessionState(projectDir, input) {
     });
   } catch {
   }
+  writeActiveSessionForKey(projectDir, input.clientSessionId, {
+    session_id: sessionId,
+    client_session_id: input.clientSessionId || void 0,
+    client_type: clientType,
+    written_at: next.written_at,
+    ...next.model ? { model: next.model } : {}
+  });
 }
-var import_node_child_process, import_node_fs5, import_node_path6, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+var import_node_child_process, import_node_fs5, import_node_path6, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -374,6 +409,7 @@ var init_project_state = __esm({
     CORE_FILE = "project.json";
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
+    GRAMATR_SESSIONS_SUBDIR = "sessions";
   }
 });
 
@@ -707,12 +743,11 @@ var init_retry = __esm({
 // dist/proxy/remote-client.js
 var remote_client_exports = {};
 __export(remote_client_exports, {
+  callRemoteResource: () => callRemoteResource,
   callRemoteTool: () => callRemoteTool,
   fetchCurrentUser: () => fetchCurrentUser,
   fetchRemotePrompt: () => fetchRemotePrompt,
   fetchRemotePromptList: () => fetchRemotePromptList,
-  fetchRemoteResource: () => fetchRemoteResource,
-  fetchRemoteResourceList: () => fetchRemoteResourceList,
   fetchRemoteToolList: () => fetchRemoteToolList
 });
 function parseRetryAfterMs(headerValue) {
@@ -824,6 +859,23 @@ async function callRemoteTool(toolName, args, sessionContext) {
   };
   return withBackoff(attempt, remoteBackoffOpts);
 }
+async function callRemoteResource(uri, sessionContext) {
+  const payload = {
+    jsonrpc: "2.0",
+    id: ++requestId,
+    method: "resources/read",
+    params: { uri }
+  };
+  const response = await postToRemote(payload, sessionContext);
+  if (!response.ok) {
+    throw new Error(`Failed to read remote resource: HTTP ${response.status} ${response.statusText}`);
+  }
+  const body = await parseSSEResponse(response);
+  if (body.error) {
+    throw new Error(`Remote resource error: ${body.error.message}`);
+  }
+  return body.result;
+}
 async function fetchRemoteToolList() {
   const payload = {
     jsonrpc: "2.0",
@@ -872,40 +924,6 @@ async function fetchRemotePrompt(name, args) {
   const body = await parseSSEResponse(response);
   if (body.error) {
     throw new Error(`Prompt error: ${body.error.message}`);
-  }
-  return body.result;
-}
-async function fetchRemoteResourceList() {
-  const payload = {
-    jsonrpc: "2.0",
-    id: ++requestId,
-    method: "resources/list",
-    params: {}
-  };
-  const response = await postToRemote(payload);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch resource list: HTTP ${response.status}`);
-  }
-  const body = await parseSSEResponse(response);
-  if (body.error) {
-    throw new Error(`Resource list error: ${body.error.message}`);
-  }
-  return body.result;
-}
-async function fetchRemoteResource(uri, sessionContext) {
-  const payload = {
-    jsonrpc: "2.0",
-    id: ++requestId,
-    method: "resources/read",
-    params: { uri }
-  };
-  const response = await postToRemote(payload, sessionContext);
-  if (!response.ok) {
-    throw new Error(`Failed to read resource: HTTP ${response.status}`);
-  }
-  const body = await parseSSEResponse(response);
-  if (body.error) {
-    throw new Error(`Resource read error: ${body.error.message}`);
   }
   return body.result;
 }
@@ -2641,6 +2659,7 @@ var import_node_child_process2 = require("node:child_process");
 var import_node_fs6 = require("node:fs");
 var import_node_os = require("node:os");
 var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
 var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
 function defaultReadProcStat(pid) {
   return (0, import_node_fs6.readFileSync)(`/proc/${pid}/stat`, "utf8");
@@ -2765,9 +2784,18 @@ function getProcessPin(options = {}) {
     } catch {
       user = "";
     }
-    const raw = `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
-    const value = `${CLIENT_SESSION_ID_PREFIX}${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
-    return { value, pid: ancestor.pid, startTime: ancestor.starttime, host, user };
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
   } catch {
     return null;
   }
@@ -2922,6 +2950,16 @@ function readSessionRoot(sessionId) {
   }
   return raw.project_root;
 }
+function peekSessionRootProjectId(sessionId) {
+  const path2 = sessionRootPath(sessionId);
+  if (!path2)
+    return null;
+  const raw = readRaw(path2);
+  if (!raw || typeof raw.gramatr_project_id !== "string" || raw.gramatr_project_id.length === 0) {
+    return null;
+  }
+  return raw.gramatr_project_id;
+}
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
   return (0, import_node_path8.join)(home, ".gramatr", "debug");
@@ -2955,6 +2993,7 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
 }
 var REGISTRY_SAMPLE_CAP = 200;
 function resolveSessionRoot(opts) {
+  const recordedProjectId = opts.sessionId ? peekSessionRootProjectId(opts.sessionId) : null;
   if (opts.sessionId) {
     const hit = readSessionRoot(opts.sessionId);
     if (hit) {
@@ -2964,11 +3003,25 @@ function resolveSessionRoot(opts) {
   } else {
     recordRegistryResolution("no_session_id", opts.sessionId, opts.clientType);
   }
-  return resolveProjectDir({
-    cwd: opts.cwd,
-    clientType: opts.clientType,
-    canonicalizeWorktree: true
-  });
+  const rawWinner = resolveProjectDir({ cwd: opts.cwd, clientType: opts.clientType });
+  const canonical = canonicalizeProjectRoot(rawWinner);
+  if (canonical === rawWinner)
+    return canonical;
+  if (recordedProjectId) {
+    const canonicalProjectId = readCommittedProjectId(canonical);
+    if (canonicalProjectId && canonicalProjectId !== recordedProjectId) {
+      recordRegistryResolution("canonicalization_rejected", opts.sessionId, opts.clientType);
+      return rawWinner;
+    }
+  }
+  return canonical;
+}
+function readCommittedProjectId(dir) {
+  try {
+    return readProjectState(dir)?.project?.project_id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // dist/hooks/lib/resolve-home.js
@@ -3419,6 +3472,9 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
     localTimezone = typeof tz === "string" && tz.length > 0 ? tz : null;
   } catch {
   }
+  const processPin = getProcessPin();
+  const pinHost = processPin?.host && processPin.host.length > 0 ? processPin.host : null;
+  const pinOsUser = processPin?.user && processPin.user.length > 0 ? processPin.user : null;
   const body = {
     jsonrpc: "2.0",
     id: 1,
@@ -3438,6 +3494,8 @@ async function fetchBootstrapPayload(token, clientSessionId, projectDir) {
         // signal that keeps persistence decoupled from remote resolution.
         git_remote: gitRemote,
         ...clientSessionId ? { client_session_id: clientSessionId } : {},
+        ...pinHost ? { host: pinHost } : {},
+        ...pinOsUser ? { os_user: pinOsUser } : {},
         ...localTimezone ? { timezone: localTimezone, timezone_source: "os" } : {}
       }
     }

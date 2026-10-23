@@ -262,18 +262,46 @@ function patchRuntime(projectDir, patch) {
 function writeActiveSession(projectDir, session) {
   patchRuntime(projectDir, { active_session: session });
 }
-function mergeActiveSession(projectDir, patch) {
-  const prev = readRuntime(projectDir).active_session;
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function writeActiveSessionForKey(projectDir, clientSessionId, session) {
+  if (!clientSessionId)
+    return false;
+  const dest = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!dest)
+    return false;
+  try {
+    atomicWriteJson(dest, (0, import_node_path.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR), session);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function mergeActiveSessionFields(prev, patch) {
   const defined = {};
   for (const [k, v] of Object.entries(patch)) {
     if (v !== void 0)
       defined[k] = v;
   }
-  const next = {
+  return {
     session_id: prev?.session_id ?? "",
     ...prev,
     ...defined
   };
+}
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const next = mergeActiveSessionFields(prev, patch);
   patchRuntime(projectDir, { active_session: next });
 }
 function writeLegacySessionJson(projectDir, session) {
@@ -325,8 +353,15 @@ function persistBootstrapSessionState(projectDir, input) {
     });
   } catch {
   }
+  writeActiveSessionForKey(projectDir, input.clientSessionId, {
+    session_id: sessionId,
+    client_session_id: input.clientSessionId || void 0,
+    client_type: clientType,
+    written_at: next.written_at,
+    ...next.model ? { model: next.model } : {}
+  });
 }
-var import_node_child_process, import_node_fs, import_node_path, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
+var import_node_child_process, import_node_fs, import_node_path, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -348,6 +383,7 @@ var init_project_state = __esm({
     CORE_FILE = "project.json";
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
+    GRAMATR_SESSIONS_SUBDIR = "sessions";
   }
 });
 
@@ -2555,8 +2591,8 @@ __export(plugin_proxy_exports, {
 });
 module.exports = __toCommonJS(plugin_proxy_exports);
 var import_node_readline = require("node:readline");
-var import_node_child_process4 = require("node:child_process");
-var import_node_fs7 = require("node:fs");
+var import_node_child_process5 = require("node:child_process");
+var import_node_fs8 = require("node:fs");
 var import_node_path7 = require("node:path");
 var import_node_url = require("node:url");
 init_config_runtime();
@@ -2851,12 +2887,160 @@ function extractEnvelopeErrorCode(response) {
   return null;
 }
 
+// dist/hooks/lib/process-pin.js
+var import_node_crypto4 = require("node:crypto");
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs7 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs7.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs7.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs7.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process4.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs7.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto4.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
 // dist/bin/plugin-proxy.js
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.37.1") {
-      return "0.37.1";
+    if ("0.39.0") {
+      return "0.39.0";
     }
   } catch {
   }
@@ -2867,8 +3051,8 @@ function resolveProxyVersion() {
       (0, import_node_path7.join)(here, "..", "package.json"),
       (0, import_node_path7.join)(here, "..", "..", "..", "package.json")
     ]) {
-      if ((0, import_node_fs7.existsSync)(candidate)) {
-        const pkg = JSON.parse((0, import_node_fs7.readFileSync)(candidate, "utf8"));
+      if ((0, import_node_fs8.existsSync)(candidate)) {
+        const pkg = JSON.parse((0, import_node_fs8.readFileSync)(candidate, "utf8"));
         if (typeof pkg.version === "string" && pkg.version)
           return pkg.version;
       }
@@ -2906,7 +3090,7 @@ function getToken() {
     return envToken;
   if (PLUGIN_DATA_DIR) {
     try {
-      const cfg = JSON.parse((0, import_node_fs7.readFileSync)((0, import_node_path7.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs8.readFileSync)((0, import_node_path7.join)(PLUGIN_DATA_DIR, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
@@ -2914,7 +3098,7 @@ function getToken() {
   }
   try {
     const credFile = (0, import_node_path7.resolve)(HOME_DIR, ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs7.readFileSync)(credFile, "utf8"));
+    const creds = JSON.parse((0, import_node_fs8.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -3088,8 +3272,8 @@ function startTokenFileWatch() {
   if (!PLUGIN_DATA_DIR)
     return;
   try {
-    (0, import_node_fs7.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
-    tokenFileWatcher = (0, import_node_fs7.watch)(PLUGIN_DATA_DIR, (_eventType, filename) => {
+    (0, import_node_fs8.mkdirSync)(PLUGIN_DATA_DIR, { recursive: true });
+    tokenFileWatcher = (0, import_node_fs8.watch)(PLUGIN_DATA_DIR, (_eventType, filename) => {
       if (filename !== null && filename !== "token.json")
         return;
       if (tokenWatchDebounceTimer)
@@ -3147,7 +3331,7 @@ function writeSessionBootstrapState(responseText, projectDir) {
 }
 function buildBootstrapNoOpResult(projectDir) {
   try {
-    const raw = (0, import_node_fs7.readFileSync)((0, import_node_path7.join)(projectDir, ".gramatr", "session.json"), "utf8");
+    const raw = (0, import_node_fs8.readFileSync)((0, import_node_path7.join)(projectDir, ".gramatr", "session.json"), "utf8");
     const parsed = JSON.parse(raw);
     const sessionId = typeof parsed.session_id === "string" ? parsed.session_id : void 0;
     if (!sessionId)
@@ -3171,6 +3355,15 @@ async function forwardToRemote(message) {
   };
   if (token)
     headers["Authorization"] = `Bearer ${token}`;
+  const headerProjectId = getProjectId(process.cwd());
+  if (headerProjectId)
+    headers["X-Gramatr-Project-Id"] = headerProjectId;
+  const headerClientSessionId = getProcessPin()?.value;
+  if (headerClientSessionId)
+    headers["X-Gramatr-Client-Session"] = headerClientSessionId;
+  if (PROXY_VERSION && PROXY_VERSION !== "0.0.0-dev") {
+    headers["X-Gramatr-Client-Version"] = PROXY_VERSION;
+  }
   const res = await fetch(REMOTE_URL, {
     method: "POST",
     headers,
@@ -3248,7 +3441,7 @@ async function forwardWithLadder(message) {
 }
 function getGitRemote(cwd) {
   try {
-    const result = (0, import_node_child_process4.spawnSync)("git", ["-C", cwd, "remote", "get-url", "origin"], {
+    const result = (0, import_node_child_process5.spawnSync)("git", ["-C", cwd, "remote", "get-url", "origin"], {
       timeout: 2e3,
       encoding: "utf8"
     });
@@ -3262,8 +3455,8 @@ function getGitRemote(cwd) {
 function getProjectId(cwd) {
   try {
     const projectFile = (0, import_node_path7.join)(cwd, ".gramatr", "project.json");
-    if ((0, import_node_fs7.existsSync)(projectFile)) {
-      const data = JSON.parse((0, import_node_fs7.readFileSync)(projectFile, "utf8"));
+    if ((0, import_node_fs8.existsSync)(projectFile)) {
+      const data = JSON.parse((0, import_node_fs8.readFileSync)(projectFile, "utf8"));
       if (typeof data.project_id === "string" && data.project_id) {
         return data.project_id;
       }
@@ -3346,7 +3539,7 @@ async function handleMessage(msg) {
       const args = params.arguments ?? {};
       const cwd = typeof args.cwd === "string" ? args.cwd : process.cwd();
       const bootstrapProjectDir = resolveProjectDir({ cwd, clientType: "claude-code" });
-      const sessionJsonExists = (0, import_node_fs7.existsSync)((0, import_node_path7.join)(bootstrapProjectDir, ".gramatr", "session.json"));
+      const sessionJsonExists = (0, import_node_fs8.existsSync)((0, import_node_path7.join)(bootstrapProjectDir, ".gramatr", "session.json"));
       if (shouldSkipBootstrap(bootstrapProjectDir, sessionJsonExists)) {
         const noOpResult = buildBootstrapNoOpResult(bootstrapProjectDir);
         if (noOpResult) {

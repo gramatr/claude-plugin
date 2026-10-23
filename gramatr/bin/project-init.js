@@ -2,8 +2,8 @@
 "use strict";
 
 // dist/bin/project-init.js
-var import_node_child_process = require("node:child_process");
-var import_node_fs2 = require("node:fs");
+var import_node_child_process2 = require("node:child_process");
+var import_node_fs3 = require("node:fs");
 var import_node_path2 = require("node:path");
 
 // dist/hooks/lib/project-state.js
@@ -178,19 +178,61 @@ function patchRuntime(projectDir, patch) {
   }
   atomicWriteJson(paths.runtime, dir, next);
 }
-function mergeActiveSession(projectDir, patch) {
-  const prev = readRuntime(projectDir).active_session;
+var GRAMATR_SESSIONS_SUBDIR = "sessions";
+function activeSessionKeyFileName(clientSessionId, ext = "json") {
+  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
+  if (!safe || safe === "." || safe === "..")
+    return null;
+  return `${safe}.${ext}`;
+}
+function activeSessionKeyPath(projectDir, clientSessionId) {
+  const name = activeSessionKeyFileName(clientSessionId);
+  if (!name)
+    return null;
+  return (0, import_node_path.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
+}
+function writeActiveSessionForKey(projectDir, clientSessionId, session) {
+  if (!clientSessionId)
+    return false;
+  const dest = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!dest)
+    return false;
+  try {
+    atomicWriteJson(dest, (0, import_node_path.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR), session);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function readActiveSessionForKey(projectDir, clientSessionId) {
+  if (!clientSessionId)
+    return null;
+  const path = activeSessionKeyPath(projectDir, clientSessionId);
+  if (!path)
+    return null;
+  return readJson(path);
+}
+function mergeActiveSessionFields(prev, patch) {
   const defined = {};
   for (const [k, v] of Object.entries(patch)) {
     if (v !== void 0)
       defined[k] = v;
   }
-  const next = {
+  return {
     session_id: prev?.session_id ?? "",
     ...prev,
     ...defined
   };
+}
+function mergeActiveSession(projectDir, patch) {
+  const prev = readRuntime(projectDir).active_session;
+  const next = mergeActiveSessionFields(prev, patch);
   patchRuntime(projectDir, { active_session: next });
+}
+function mergeActiveSessionForKey(projectDir, clientSessionId, patch) {
+  const prev = readActiveSessionForKey(projectDir, clientSessionId);
+  const next = mergeActiveSessionFields(prev, patch);
+  return writeActiveSessionForKey(projectDir, clientSessionId, next);
 }
 function writeGitContext(projectDir, ctx) {
   patchRuntime(projectDir, { git_context: ctx });
@@ -214,6 +256,154 @@ function isRuntimeGitContextEnabledFromEnv() {
   return process.env.GRAMATR_RUNTIME_GIT_CONTEXT_ENABLED === "true";
 }
 
+// dist/hooks/lib/process-pin.js
+var import_node_crypto = require("node:crypto");
+var import_node_child_process = require("node:child_process");
+var import_node_fs2 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs2.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs2.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs2.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs2.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
 // dist/bin/project-init.js
 var PROJECT_DIR = findProjectRoot();
 function readSessionStartModel() {
@@ -221,7 +411,7 @@ function readSessionStartModel() {
     return "";
   let raw;
   try {
-    raw = (0, import_node_fs2.readFileSync)(0, "utf8");
+    raw = (0, import_node_fs3.readFileSync)(0, "utf8");
   } catch {
     return "";
   }
@@ -240,8 +430,10 @@ try {
 }
 try {
   const model = readSessionStartModel();
-  if (model)
+  if (model) {
     mergeActiveSession(PROJECT_DIR, { model });
+    mergeActiveSessionForKey(PROJECT_DIR, getProcessPin()?.value, { model });
+  }
 } catch {
 }
 var savedProject = {};
@@ -256,10 +448,10 @@ try {
   }
 } catch {
 }
-var remote_url = (0, import_node_child_process.spawnSync)("git", ["remote", "get-url", "origin"], { cwd: PROJECT_DIR, encoding: "utf8" }).stdout?.trim() ?? "";
-var branch = (0, import_node_child_process.spawnSync)("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: PROJECT_DIR, encoding: "utf8" }).stdout?.trim() ?? "";
+var remote_url = (0, import_node_child_process2.spawnSync)("git", ["remote", "get-url", "origin"], { cwd: PROJECT_DIR, encoding: "utf8" }).stdout?.trim() ?? "";
+var branch = (0, import_node_child_process2.spawnSync)("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: PROJECT_DIR, encoding: "utf8" }).stdout?.trim() ?? "";
 var outDir = (0, import_node_path2.join)(PROJECT_DIR, ".gramatr");
-(0, import_node_fs2.mkdirSync)(outDir, { recursive: true });
+(0, import_node_fs3.mkdirSync)(outDir, { recursive: true });
 var gitContextPayload = buildGitContextPayload({
   projectId: savedProject.project_id,
   slug: savedProject.slug,
@@ -267,7 +459,7 @@ var gitContextPayload = buildGitContextPayload({
   branch,
   cwd: PROJECT_DIR
 });
-(0, import_node_fs2.writeFileSync)((0, import_node_path2.join)(outDir, "git-context.json"), JSON.stringify(gitContextPayload, null, 2) + "\n", "utf8");
+(0, import_node_fs3.writeFileSync)((0, import_node_path2.join)(outDir, "git-context.json"), JSON.stringify(gitContextPayload, null, 2) + "\n", "utf8");
 if (isRuntimeGitContextEnabledFromEnv()) {
   try {
     writeGitContext(PROJECT_DIR, {
