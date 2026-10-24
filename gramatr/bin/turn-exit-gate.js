@@ -614,7 +614,7 @@ function extractIscTaskLifecycle(transcriptPath) {
 
 // dist/hooks/lib/turn-exit-verifier.js
 var MAX_BLOCKS_PER_TURN = 2;
-var REFLECTION_EFFORT_LEVELS = /* @__PURE__ */ new Set([
+var HARD_GATE_EFFORT_LEVELS = /* @__PURE__ */ new Set([
   "standard",
   "extended",
   "deep",
@@ -625,13 +625,13 @@ var BLOCKABLE_GATES = [
     id: "classification_feedback",
     tool: "classification_feedback",
     remediation: "Call mcp__plugin_gramatr_gramatr__classification_feedback with the original prompt verbatim (was_correct + original_prompt at minimum), then finish.",
-    appliesTo: () => true
+    appliesTo: (effort) => effort !== null && HARD_GATE_EFFORT_LEVELS.has(effort)
   },
   {
     id: "save_reflection",
     tool: "save_reflection",
     remediation: "Call mcp__plugin_gramatr_gramatr__save_reflection with the Q1/Q2/Q3 LEARN-phase reflection, then finish.",
-    appliesTo: (effort) => effort !== null && REFLECTION_EFFORT_LEVELS.has(effort)
+    appliesTo: (effort) => effort !== null && HARD_GATE_EFFORT_LEVELS.has(effort)
   }
 ];
 var ISC_CLOSURE_GATE_ID = "isc_task_closure";
