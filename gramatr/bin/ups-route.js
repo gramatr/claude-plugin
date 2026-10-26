@@ -3413,6 +3413,8 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl) {
   } catch {
     return { status: "error" };
   }
+  if (res.status === 401 || res.status === 403)
+    return { status: "unauthorized" };
   if (!res.ok)
     return { status: "error" };
   const contentType = res.headers.get("content-type") ?? "";
@@ -4130,6 +4132,9 @@ function resolveUpsRouteProjectDir(input) {
 var RECOVERY_FAILURE_REASONS = {
   no_credential: "no client credential available \u2014 no OAuth token found on disk",
   no_token: "server resolved the session but minted no rest_token",
+  // #7066 — the server actively rejected the presented credential (401/403).
+  // Distinct from `error`: the endpoint is healthy, it is refusing these bytes.
+  unauthorized: "the recovery endpoint rejected the presented credential (401/403) \u2014 not a network or server fault",
   error: "network or server error contacting the recovery endpoint"
 };
 function describeRecoveryFailure(status) {
@@ -4144,8 +4149,8 @@ function loudRecoveryFailureWarning(reason) {
     }
   };
 }
-function degradedSurfaceWarning(remoteUrl, now = Date.now(), scriptPath = process.argv[1] ?? "", reason) {
-  if (isCachedMcpOAuthEntryStale(remoteUrl, now)) {
+function degradedSurfaceWarning(remoteUrl, now = Date.now(), scriptPath = process.argv[1] ?? "", reason, outcomeStatus) {
+  if (isCachedMcpOAuthEntryStale(remoteUrl, now) || outcomeStatus === "unauthorized") {
     try {
       const result = runStaleAuthPurge(remoteUrl);
       return {
@@ -4277,7 +4282,7 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
       token = healed.file;
       selfHealedThisTurn = true;
       if (!token) {
-        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome));
+        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome), healed.outcome);
       }
     }
   }
@@ -4367,7 +4372,7 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
     } else {
       const healed = await selfHealSessionToken(input, projectDir, fetchImpl);
       if (!healed.file) {
-        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome));
+        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome), healed.outcome);
       }
       refreshed = healed.file;
     }
