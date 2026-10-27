@@ -3277,9 +3277,10 @@ function readGitRemoteFromProjectFile(projectDir) {
   }
 }
 var RECOVERY_TIMEOUT_MS = 6e3;
+var RECOVERY_RETRY_TIMEOUT_MS = 12e3;
 var RECOVERY_RETRY_JITTER_MS = 250;
 var RECOVERY_LOCK_FILE = ".session-recovery.lock";
-var RECOVERY_LOCK_STALE_MS = RECOVERY_TIMEOUT_MS + RECOVERY_RETRY_JITTER_MS + 2e3;
+var RECOVERY_LOCK_STALE_MS = RECOVERY_TIMEOUT_MS + RECOVERY_RETRY_JITTER_MS + RECOVERY_RETRY_TIMEOUT_MS + 2e3;
 async function withRecoveryLock(projectDir, fn) {
   const dir = (0, import_node_path10.join)(projectDir, ".gramatr");
   try {
@@ -3408,7 +3409,7 @@ function syncIdentityCacheFromPayload(parsed) {
     return false;
   }
 }
-async function attemptRecovery(remoteUrl, token, opts, fetchImpl) {
+async function attemptRecovery(remoteUrl, token, opts, fetchImpl, timeoutMs = RECOVERY_TIMEOUT_MS) {
   const body = {
     jsonrpc: "2.0",
     id: 1,
@@ -3437,7 +3438,7 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl) {
         Authorization: `Bearer ${token}`
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(RECOVERY_TIMEOUT_MS)
+      signal: AbortSignal.timeout(timeoutMs)
     });
   } catch {
     return { status: "error" };
@@ -3492,7 +3493,7 @@ async function recoverSessionToken(opts) {
     if (outcome.status === "error") {
       const delay = Math.floor(Math.random() * RECOVERY_RETRY_JITTER_MS);
       await new Promise((r) => setTimeout(r, delay));
-      outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl);
+      outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl, RECOVERY_RETRY_TIMEOUT_MS);
     }
     return outcome;
   });
@@ -4175,12 +4176,13 @@ var RECOVERY_FAILURE_REASONS = {
 function describeRecoveryFailure(status) {
   return status === "recovered" ? void 0 : RECOVERY_FAILURE_REASONS[status];
 }
-function loudRecoveryFailureWarning(reason) {
+function loudRecoveryFailureWarning(reason, status) {
   const detail = reason ? ` (${reason})` : "";
+  const workaround = status === "error" ? " An agent in this session can also call the `session_bootstrap` MCP tool directly with `recovery: true` to self-heal `.gramatr/.session` immediately, without waiting on this hook\u2019s own timeout." : "";
   return {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      additionalContext: `gr\u0101matr: session token missing and recovery failed${detail} \u2014 REST surfaces degraded. Run \`/mcp\` in Claude Code to reconnect, or check connectivity to the gr\u0101matr server.`
+      additionalContext: `gr\u0101matr: session token missing and recovery failed${detail} \u2014 REST surfaces degraded. Run \`/mcp\` in Claude Code to reconnect, or check connectivity to the gr\u0101matr server.${workaround}`
     }
   };
 }
@@ -4205,7 +4207,7 @@ function degradedSurfaceWarning(remoteUrl, now = Date.now(), scriptPath = proces
       }
     }
   }
-  return loudRecoveryFailureWarning(reason);
+  return loudRecoveryFailureWarning(reason, outcomeStatus);
 }
 async function selfHealSessionToken(input, projectDir, fetchImpl) {
   const clientSessionId = typeof input.session_id === "string" ? input.session_id : null;

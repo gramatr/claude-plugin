@@ -183,8 +183,9 @@ init_device_key_store();
 
 // dist/hooks/lib/bootstrap-recovery.js
 var RECOVERY_TIMEOUT_MS = 6e3;
+var RECOVERY_RETRY_TIMEOUT_MS = 12e3;
 var RECOVERY_RETRY_JITTER_MS = 250;
-var RECOVERY_LOCK_STALE_MS = RECOVERY_TIMEOUT_MS + RECOVERY_RETRY_JITTER_MS + 2e3;
+var RECOVERY_LOCK_STALE_MS = RECOVERY_TIMEOUT_MS + RECOVERY_RETRY_JITTER_MS + RECOVERY_RETRY_TIMEOUT_MS + 2e3;
 function findUsableMcpOAuthEntry(remoteUrl) {
   try {
     const credFile = (0, import_node_path.resolve)(getHomeDir(), ".claude", ".credentials.json");
