@@ -3276,8 +3276,37 @@ function readGitRemoteFromProjectFile(projectDir) {
     return null;
   }
 }
-var RECOVERY_TIMEOUT_MS = 3e3;
+var RECOVERY_TIMEOUT_MS = 6e3;
 var RECOVERY_RETRY_JITTER_MS = 250;
+var RECOVERY_LOCK_FILE = ".session-recovery.lock";
+var RECOVERY_LOCK_STALE_MS = RECOVERY_TIMEOUT_MS + RECOVERY_RETRY_JITTER_MS + 2e3;
+async function withRecoveryLock(projectDir, fn) {
+  const dir = (0, import_node_path10.join)(projectDir, ".gramatr");
+  try {
+    if (!(0, import_node_fs9.existsSync)(dir))
+      (0, import_node_fs9.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const lockPath = (0, import_node_path10.join)(dir, RECOVERY_LOCK_FILE);
+    if (!(0, import_node_fs9.existsSync)(lockPath))
+      (0, import_node_fs9.writeFileSync)(lockPath, "", { mode: 384 });
+    const lockfile = await Promise.resolve().then(() => __toESM(require_proper_lockfile(), 1));
+    let release = null;
+    try {
+      release = await lockfile.default.lock(lockPath, {
+        retries: { retries: 10, minTimeout: 10, maxTimeout: 200 },
+        stale: RECOVERY_LOCK_STALE_MS
+      });
+    } catch {
+      return await fn();
+    }
+    try {
+      return await fn();
+    } finally {
+      await release();
+    }
+  } catch {
+    return await fn();
+  }
+}
 function findUsableMcpOAuthEntry(remoteUrl) {
   try {
     const credFile = (0, import_node_path10.resolve)(getHomeDir(), ".claude", ".credentials.json");
@@ -3444,23 +3473,29 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl) {
   return { status: "recovered", file };
 }
 async function recoverSessionToken(opts) {
-  const fetchImpl = opts.fetchImpl ?? fetch;
-  const remoteUrl = opts.remoteUrl ?? resolveMcpUrl();
-  const token = opts.token ?? resolveClientBearerToken(remoteUrl);
-  if (!token)
-    return { status: "no_credential" };
-  const recoveryOpts = {
-    ...opts,
-    gitRemote: opts.gitRemote ?? readGitRemoteFromProjectFile(opts.projectDir)
-  };
-  opts = recoveryOpts;
-  let outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl);
-  if (outcome.status === "error") {
-    const delay = Math.floor(Math.random() * RECOVERY_RETRY_JITTER_MS);
-    await new Promise((r) => setTimeout(r, delay));
-    outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl);
-  }
-  return outcome;
+  return withRecoveryLock(opts.projectDir, async () => {
+    const existing = readSessionToken(opts.projectDir);
+    if (isSessionTokenValid(existing)) {
+      return { status: "recovered", file: existing };
+    }
+    const fetchImpl = opts.fetchImpl ?? fetch;
+    const remoteUrl = opts.remoteUrl ?? resolveMcpUrl();
+    const token = opts.token ?? resolveClientBearerToken(remoteUrl);
+    if (!token)
+      return { status: "no_credential" };
+    const recoveryOpts = {
+      ...opts,
+      gitRemote: opts.gitRemote ?? readGitRemoteFromProjectFile(opts.projectDir)
+    };
+    opts = recoveryOpts;
+    let outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl);
+    if (outcome.status === "error") {
+      const delay = Math.floor(Math.random() * RECOVERY_RETRY_JITTER_MS);
+      await new Promise((r) => setTimeout(r, delay));
+      outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl);
+    }
+    return outcome;
+  });
 }
 
 // dist/hooks/lib/credential-heal.js
