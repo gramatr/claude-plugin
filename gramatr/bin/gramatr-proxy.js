@@ -3039,8 +3039,8 @@ function getProcessPin(options = {}) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.43.3") {
-      return "0.43.3";
+    if ("0.43.4") {
+      return "0.43.4";
     }
   } catch {
   }
