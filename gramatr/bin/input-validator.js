@@ -200,7 +200,14 @@ function extractToolShortName(fullName) {
   const parts = fullName.split("__");
   return parts.length >= 3 ? parts.slice(2).join("__") : fullName;
 }
+var GRAMATR_MCP_SERVER_NAMES = /* @__PURE__ */ new Set(["gramatr", "plugin_gramatr_gramatr"]);
+function isOtherServersMcpTool(fullName) {
+  const parts = fullName.split("__");
+  return parts.length >= 3 && parts[0] === "mcp" && !GRAMATR_MCP_SERVER_NAMES.has(parts[1]);
+}
 function validate(toolName, input) {
+  if (isOtherServersMcpTool(toolName))
+    return { allow: true };
   const shortName = extractToolShortName(toolName);
   const rules = TOOL_INPUT_RULES[shortName];
   if (!rules || rules.length === 0)
@@ -210,18 +217,6 @@ function validate(toolName, input) {
     if (value === void 0 || value === null || value === "") {
       return { allow: false, reason: `Missing required field "${rule.field}" for ${shortName}. Provide a non-empty value.` };
     }
-    if (rule.validValues && typeof value === "string") {
-      const validSet = rule.field === "entity_type" ? ENTITY_TYPE_SET : new Set(rule.validValues);
-      if (!validSet.has(value)) {
-        return { allow: false, reason: `Invalid ${rule.field}="${value}" for ${shortName}. Valid values: ${rule.validValues.join(", ")}` };
-      }
-    }
-  }
-  if ("entity_type" in input && typeof input.entity_type === "string" && !ENTITY_TYPE_SET.has(input.entity_type)) {
-    return {
-      allow: false,
-      reason: `Invalid entity_type="${input.entity_type}". Call list_entity_types for the full list.`
-    };
   }
   return { allow: true };
 }

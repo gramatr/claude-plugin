@@ -63,7 +63,7 @@ function readStdin(timeoutMs) {
 var ALLOW_OUTPUT = {
   hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" }
 };
-var DENY_REASON = "gr\u0101matr memory-gate: local Claude Code memory files (~/.claude/projects/*/memory/*.md, including MEMORY.md) are session/machine-local and not durable the way gr\u0101matr's memory is \u2014 they don't persist across sessions, machines, or team members the way the gr\u0101matr knowledge graph does. Writes to them are not allowed in a gr\u0101matr session. Use mcp__gramatr__create_entity to record a new memory, or mcp__gramatr__add_observation to append to an existing one.";
+var DENY_REASON = "gr\u0101matr memory-gate: local Claude Code memory files (~/.claude/projects/*/memory/*.md, including MEMORY.md) are session/machine-local and not durable the way gr\u0101matr's memory is \u2014 they don't persist across sessions, machines, or team members the way the gr\u0101matr knowledge graph does. Writes to them are not allowed in a gr\u0101matr session. Use mcp__gramatr__create_entity to record a new memory, or mcp__gramatr__add_observation to append to an existing one. If you actually want native Claude Code auto-memory instead, run /gramatr:memory-gate off to disable this hard-deny \u2014 it is a real, documented opt-out, not a workaround.";
 function denyOutput(reason) {
   return {
     hookSpecificOutput: {

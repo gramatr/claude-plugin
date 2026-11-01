@@ -15,6 +15,10 @@ var FLOORS_BY_EFFORT = {
   comprehensive: { "qg_criteria_floor": 8, "qg_anti_criteria_floor": 3, "thinking_capability_floor": 8, "verification_depth": "interview_pass", "learn_required": true }
 };
 
+// dist/hooks/generated/quality-gate-criteria.js
+var MIN_CRITERION_WORDS = 8;
+var MAX_CRITERION_WORDS = 12;
+
 // dist/hooks/task-quality-gate.js
 var VALID_FLOOR_MODES = /* @__PURE__ */ new Set(["off", "warn", "enforce"]);
 function resolveTierFloorMode() {
@@ -24,12 +28,10 @@ function resolveTierFloorMode() {
   return "warn";
 }
 var MIN_CRITERIA = 4;
-var MIN_WORDS = 8;
-var MAX_WORDS = 12;
 var DENY_MESSAGE = [
   "Quality Gate criteria required before creating a task.",
   "Format:",
-  `  - Minimum ${MIN_CRITERIA} criteria, ${MIN_WORDS}-${MAX_WORDS} words each, describing the ideal end STATE (not actions)`,
+  `  - Minimum ${MIN_CRITERIA} criteria, ${MIN_CRITERION_WORDS}-${MAX_CRITERION_WORDS} words each, describing the ideal end STATE (not actions)`,
   "  - At least 1 anti-criterion: what must NOT happen",
   "",
   "Example:",
@@ -131,7 +133,7 @@ function validateQualityGate(toolInput) {
   }
   for (const c of criteria) {
     const words = wordCount(criterionText(c));
-    if (words < MIN_WORDS || words > MAX_WORDS) {
+    if (words < MIN_CRITERION_WORDS || words > MAX_CRITERION_WORDS) {
       return { allow: false, reason: DENY_MESSAGE };
     }
   }

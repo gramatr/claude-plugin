@@ -151,15 +151,15 @@ function readStdin(timeoutMs) {
     process.stdin.resume();
   });
 }
-function buildPreToolUseOutput(allow, reason) {
-  if (allow) {
+function buildPreToolUseOutput(decision, reason) {
+  if (decision === "allow") {
     return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
   }
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: reason || "Write/Edit blocked by the gramatr project-write guard."
+      permissionDecision: decision,
+      permissionDecisionReason: reason || "Write/Edit flagged by the gramatr project-write guard."
     }
   };
 }
@@ -172,45 +172,45 @@ function resolveProjectIdentity(startDir) {
 }
 function checkProjectWrite(filePath, cwd) {
   if (!filePath)
-    return { allow: true };
+    return { decision: "allow" };
   const ownIdentity = resolveProjectIdentity(cwd);
   if (!ownIdentity) {
-    return { allow: true };
+    return { decision: "allow" };
   }
   const absoluteTarget = (0, import_node_path2.resolve)(cwd, filePath);
   const targetIdentity = resolveProjectIdentity((0, import_node_path2.dirname)(absoluteTarget));
   if (!targetIdentity) {
-    return { allow: true };
+    return { decision: "allow" };
   }
   if (targetIdentity === ownIdentity) {
-    return { allow: true };
+    return { decision: "allow" };
   }
   return {
-    allow: false,
+    decision: "ask",
     reason: `This session is rooted in project "${ownIdentity}", but ${absoluteTarget} belongs to a different project ("${targetIdentity}"). If this cross-project write is deliberate, confirm to proceed.`
   };
 }
 async function runProjectWriteGuardHook(_args = []) {
   const raw = await readStdin(HOOK_STDIN_DEFAULT_TIMEOUT_MS);
   if (!raw.trim()) {
-    process.stdout.write(JSON.stringify(buildPreToolUseOutput(true)));
+    process.stdout.write(JSON.stringify(buildPreToolUseOutput("allow")));
     return 0;
   }
   try {
     const input = JSON.parse(raw);
     if (input.tool_name !== "Write" && input.tool_name !== "Edit") {
-      process.stdout.write(JSON.stringify(buildPreToolUseOutput(true)));
+      process.stdout.write(JSON.stringify(buildPreToolUseOutput("allow")));
       return 0;
     }
     const filePath = input.tool_input?.file_path || input.tool_input?.path || "";
     if (!filePath) {
-      process.stdout.write(JSON.stringify(buildPreToolUseOutput(true)));
+      process.stdout.write(JSON.stringify(buildPreToolUseOutput("allow")));
       return 0;
     }
     const result = checkProjectWrite(filePath, process.cwd());
-    process.stdout.write(JSON.stringify(buildPreToolUseOutput(result.allow, result.reason)));
+    process.stdout.write(JSON.stringify(buildPreToolUseOutput(result.decision, result.reason)));
   } catch {
-    process.stdout.write(JSON.stringify(buildPreToolUseOutput(true)));
+    process.stdout.write(JSON.stringify(buildPreToolUseOutput("allow")));
   }
   return 0;
 }

@@ -3055,7 +3055,8 @@ async function readHookStdin() {
 // dist/bin/git-commit-handoff.js
 var HANDOFF_TIMEOUT_MS = 5e3;
 function isRealCommitCommand(command) {
-  if (!command.includes("git commit"))
+  const segments = command.split(/&&|;|\|\|/).map((s) => s.trim());
+  if (!segments.some((s) => /^git\s+commit\b/.test(s)))
     return false;
   if (command.includes("--dry-run"))
     return false;

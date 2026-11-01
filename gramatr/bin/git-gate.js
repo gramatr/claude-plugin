@@ -284,11 +284,17 @@ function checkGitCommand(command, cwd) {
     };
   }
   if (/^git\s+push\b/.test(trimmed)) {
-    const pushesToProtected = /^git\s+push\b.*\b(main|master)\b/.test(trimmed) || /^git\s+push\b.*\S+:(main|master)\b/.test(trimmed);
+    const isProtectedBranchRef = (ref) => ref === "main" || ref === "master" || ref === "refs/heads/main" || ref === "refs/heads/master" || ref.endsWith("/main") || ref.endsWith("/master");
+    const pushesToProtected = trimmed.split(/\s+/).some((tok) => {
+      if (tok.startsWith("-"))
+        return false;
+      const colonIdx = tok.indexOf(":");
+      return colonIdx !== -1 ? isProtectedBranchRef(tok.slice(colonIdx + 1)) : isProtectedBranchRef(tok);
+    });
     if (pushesToProtected) {
       return {
         allow: false,
-        reason: "Use a PR to push to main. Direct pushes to main/master are not allowed."
+        reason: "Use a PR to push to main. Direct pushes to main/master are not allowed. If this is confirmed deliberate, run the command directly by typing `! " + trimmed + "` in the prompt."
       };
     }
   }
