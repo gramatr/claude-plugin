@@ -2616,6 +2616,9 @@ function classifyDeadState(signal) {
   if (err === "invalid_grant" || err === "revoked" || err === "expired_token" || desc.includes("revoked") || desc.includes("token family")) {
     return "revoked_family";
   }
+  if (desc.includes("token has expired")) {
+    return "expired";
+  }
   return null;
 }
 function getPluginTokenPath() {
@@ -2686,7 +2689,7 @@ init_device_key_store();
 var SESSION_REST_TOKEN_PREFIX = "gmtr_sess_";
 var TOKEN_FILE = "token.json";
 var MINT_TIMEOUT_MS = 3e3;
-var PROXY_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
+var PROXY_TOKEN_PROACTIVE_RENEW_FRACTION = 0.5;
 function getProxyTokenPath(dataDir) {
   return (0, import_node_path6.join)(dataDir, TOKEN_FILE);
 }
@@ -3039,8 +3042,8 @@ function getProcessPin(options = {}) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.43.16") {
-      return "0.43.16";
+    if ("0.43.17") {
+      return "0.43.17";
     }
   } catch {
   }
