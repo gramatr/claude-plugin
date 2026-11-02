@@ -461,9 +461,9 @@ async function fetchRemoteClassificationSnapshot(clientSessionId) {
     const intent = typeof parsed.intent === "string" ? parsed.intent : null;
     const confidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
     const createdAt = typeof parsed.created_at === "number" ? parsed.created_at : null;
-    return { effort, intent, confidence, created_at: createdAt };
+    return { effort, intent, confidence, created_at: createdAt, fetchError: false };
   } catch {
-    return null;
+    return { effort: null, intent: null, confidence: null, created_at: null, fetchError: true };
   }
 }
 
@@ -767,7 +767,7 @@ function verifyTurnGates(opts) {
   try {
     const called = normaliseCalledTools(opts.calledTools);
     const gateFilter = opts.gateIds ? new Set(opts.gateIds) : null;
-    const unmet = BLOCKABLE_GATES.filter((gate) => (!gateFilter || gateFilter.has(gate.id)) && gate.appliesTo(opts.effort) && !called.has(gate.tool)).map((g) => ({ id: g.id, remediation: g.remediation }));
+    const unmet = BLOCKABLE_GATES.filter((gate) => (!gateFilter || gateFilter.has(gate.id)) && (opts.effortUnknownDueToError === true || gate.appliesTo(opts.effort)) && !called.has(gate.tool)).map((g) => ({ id: g.id, remediation: g.remediation }));
     if (!gateFilter || gateFilter.has(ISC_CLOSURE_GATE_ID)) {
       const iscUnmet = evaluateIscClosureGate(opts.iscLifecycle);
       if (iscUnmet)
@@ -804,8 +804,10 @@ function verifyTurnGates(opts) {
     });
     const lines = unmet.map((g) => `  \u2022 HARD gate unmet: ${g.id} not satisfied this turn.
     \u2192 ${g.remediation}`);
-    const stderr = `gr\u0101matr turn-exit verifier \u2014 ${unmet.length} HARD gate(s) unmet (block ${newCount}/${MAX_BLOCKS_PER_TURN}). You may not finish yet:
-` + lines.join("\n") + `
+    const header = opts.effortUnknownDueToError ? `gr\u0101matr turn-exit verifier \u2014 could not confirm this turn's effort level (the classification snapshot fetch failed), so the following HARD gate(s) are assumed to apply as a precaution (block ${newCount}/${MAX_BLOCKS_PER_TURN}). You may not finish yet:
+` : `gr\u0101matr turn-exit verifier \u2014 ${unmet.length} HARD gate(s) unmet (block ${newCount}/${MAX_BLOCKS_PER_TURN}). You may not finish yet:
+`;
+    const stderr = header + lines.join("\n") + `
 
 Complete the action(s) above, then stop.`;
     return {
@@ -833,7 +835,8 @@ function runTurnExitVerifier(opts) {
       iscLifecycle,
       requiredActions: opts.requiredActions,
       fetchedResourceUris,
-      gateIds: opts.gateIds
+      gateIds: opts.gateIds,
+      effortUnknownDueToError: opts.effortUnknownDueToError
     });
   } catch {
     return {
@@ -1038,7 +1041,12 @@ async function runTurnExitGateHook(input) {
     } catch {
       stateKey = sessionId;
     }
-    const effort = (await fetchRemoteClassificationSnapshot(stateKey))?.effort ?? null;
+    const classificationSnapshot = await fetchRemoteClassificationSnapshot(stateKey);
+    const effort = classificationSnapshot?.effort ?? null;
+    const effortUnknownDueToError = classificationSnapshot?.fetchError === true;
+    if (effortUnknownDueToError) {
+      process.stderr.write("[gramatr] turn-exit-gate: classification snapshot fetch failed \u2014 cannot verify this turn's effort level; failing closed on classification_feedback/save_reflection rather than silently skipping them (gramatr/gramatr#7244)\n");
+    }
     const remote = await fetchRemotePacketSnapshot(stateKey);
     let requiredActions;
     if (remote && (remote.effort !== null || remote.intent !== null || remote.required_actions.length > 0)) {
@@ -1065,7 +1073,8 @@ async function runTurnExitGateHook(input) {
       // (not set to `gateIds: undefined`) when the flag is on, so this
       // matches #6973's original "no gateIds filter" shape exactly rather
       // than an object carrying an explicit-undefined key.
-      ...isRequiredActionsGateEnabled() ? {} : { gateIds: ALL_GATE_IDS.filter((id) => id !== REQUIRED_ACTIONS_GATE_ID) }
+      ...isRequiredActionsGateEnabled() ? {} : { gateIds: ALL_GATE_IDS.filter((id) => id !== REQUIRED_ACTIONS_GATE_ID) },
+      effortUnknownDueToError
     });
     if (verdict.block && verdict.stderr) {
       return { block: true, stderr: verdict.stderr };

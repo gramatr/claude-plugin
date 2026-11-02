@@ -3080,9 +3080,9 @@ async function fetchRemoteClassificationSnapshot(clientSessionId) {
     const intent = typeof parsed.intent === "string" ? parsed.intent : null;
     const confidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
     const createdAt = typeof parsed.created_at === "number" ? parsed.created_at : null;
-    return { effort, intent, confidence, created_at: createdAt };
+    return { effort, intent, confidence, created_at: createdAt, fetchError: false };
   } catch {
-    return null;
+    return { effort: null, intent: null, confidence: null, created_at: null, fetchError: true };
   }
 }
 
