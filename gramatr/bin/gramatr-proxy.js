@@ -387,131 +387,6 @@ var init_project_state = __esm({
   }
 });
 
-// ../proof-crypto/dist/index.js
-function generateEd25519KeyPair() {
-  const { privateKey, publicKey } = (0, import_node_crypto.generateKeyPairSync)("ed25519");
-  return { privateKey, publicKey };
-}
-function toPublicJwk(publicKey) {
-  const jwk = publicKey.export({ format: "jwk" });
-  if (!jwk.x) {
-    throw new Error('proof-crypto: public key JWK export missing required "x" member');
-  }
-  return { kty: "OKP", crv: "Ed25519", x: jwk.x };
-}
-function jwkThumbprint(jwk) {
-  const canonical = `{"crv":"${jwk.crv}","kty":"${jwk.kty}","x":"${jwk.x}"}`;
-  return (0, import_node_crypto.createHash)("sha256").update(canonical).digest("base64url");
-}
-function b64url(input) {
-  return Buffer.from(input).toString("base64url");
-}
-function buildCompactEnvelope(privateKey, publicJwk, typ, payload) {
-  const header = { typ, alg: "EdDSA", jwk: publicJwk };
-  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-  const signature = (0, import_node_crypto.sign)(null, Buffer.from(signingInput, "ascii"), privateKey);
-  return `${signingInput}.${b64url(signature)}`;
-}
-var import_node_crypto;
-var init_dist = __esm({
-  "../proof-crypto/dist/index.js"() {
-    "use strict";
-    import_node_crypto = require("node:crypto");
-  }
-});
-
-// dist/hooks/lib/dpop-key.js
-var init_dpop_key = __esm({
-  "dist/hooks/lib/dpop-key.js"() {
-    "use strict";
-    init_dist();
-  }
-});
-
-// dist/hooks/lib/session-rest-token.js
-function getSessionTokenPath(projectDir) {
-  return (0, import_node_path2.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
-}
-function normalizeRestTokenBlock(block) {
-  if (!block || typeof block !== "object")
-    return null;
-  const { token, expires_at, base_url, aud, issued_at, written_at, session_id } = block;
-  if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
-    const file = { token, expires_at, base_url, aud };
-    if (typeof issued_at === "string" && issued_at.length > 0)
-      file.issued_at = issued_at;
-    if (typeof written_at === "string" && written_at.length > 0)
-      file.written_at = written_at;
-    if (typeof session_id === "string" && session_id.length > 0)
-      file.session_id = session_id;
-    return file;
-  }
-  return null;
-}
-function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path2.join)(projectDir, GRAMATR_DIR2);
-  if (!(0, import_node_fs2.existsSync)(dir)) {
-    (0, import_node_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
-  }
-  const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
-  const dest = getSessionTokenPath(projectDir);
-  const tmp = `${dest}.tmp.${process.pid}`;
-  (0, import_node_fs2.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_node_fs2.renameSync)(tmp, dest);
-  try {
-    (0, import_node_fs2.chmodSync)(dest, 384);
-  } catch {
-  }
-}
-function persistBootstrapRestToken(projectDir, block) {
-  const file = normalizeRestTokenBlock(block);
-  if (!file)
-    return false;
-  writeSessionToken(projectDir, file);
-  return true;
-}
-function readSessionToken(projectDir) {
-  const dest = getSessionTokenPath(projectDir);
-  try {
-    if (!(0, import_node_fs2.existsSync)(dest))
-      return null;
-    const parsed = JSON.parse((0, import_node_fs2.readFileSync)(dest, "utf8"));
-    return normalizeRestTokenBlock(parsed);
-  } catch {
-    return null;
-  }
-}
-function isSessionTokenValid(file, now = Date.now()) {
-  if (!file)
-    return false;
-  const exp = Date.parse(file.expires_at);
-  if (Number.isNaN(exp))
-    return false;
-  return exp - SESSION_TOKEN_EXPIRY_SKEW_MS > now;
-}
-function apiV1Base(baseUrl) {
-  const trimmed = baseUrl.replace(/\/+$/, "");
-  return `${trimmed}/api/v1`;
-}
-function shouldSkipBootstrap(projectDir, sessionJsonExists, now = Date.now()) {
-  if (!sessionJsonExists)
-    return false;
-  const token = readSessionToken(projectDir);
-  return isSessionTokenValid(token, now);
-}
-var import_node_fs2, import_node_path2, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS;
-var init_session_rest_token = __esm({
-  "dist/hooks/lib/session-rest-token.js"() {
-    "use strict";
-    import_node_fs2 = require("node:fs");
-    import_node_path2 = require("node:path");
-    init_dpop_key();
-    GRAMATR_DIR2 = ".gramatr";
-    SESSION_FILE = ".session";
-    SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
-  }
-});
-
 // dist/hooks/lib/mint-credential-store.js
 function currentPlatform() {
   return platformImpl ?? process.platform;
@@ -523,7 +398,7 @@ function scopedFileBackendName(projectId) {
   return `${FILE_BACKEND_NAME}-${projectId}`;
 }
 function getFileBackendPath(projectId) {
-  return (0, import_node_path3.join)(getHomeDir(), ".gramatr", scopedFileBackendName(projectId));
+  return (0, import_node_path2.join)(getHomeDir(), ".gramatr", scopedFileBackendName(projectId));
 }
 function fileBackendForced() {
   return isKeyringFileOnlyFromEnv();
@@ -630,14 +505,14 @@ function windowsDelete(service) {
 }
 function fileWrite(record, dest) {
   try {
-    const dir = (0, import_node_path3.join)(getHomeDir(), ".gramatr");
-    if (!(0, import_node_fs3.existsSync)(dir))
-      (0, import_node_fs3.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path2.join)(getHomeDir(), ".gramatr");
+    if (!(0, import_node_fs2.existsSync)(dir))
+      (0, import_node_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs3.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
-    (0, import_node_fs3.renameSync)(tmp, dest);
+    (0, import_node_fs2.writeFileSync)(tmp, record, { encoding: "utf8", mode: 384 });
+    (0, import_node_fs2.renameSync)(tmp, dest);
     try {
-      (0, import_node_fs3.chmodSync)(dest, 384);
+      (0, import_node_fs2.chmodSync)(dest, 384);
     } catch {
     }
     return true;
@@ -647,9 +522,9 @@ function fileWrite(record, dest) {
 }
 function fileRead(dest) {
   try {
-    if (!(0, import_node_fs3.existsSync)(dest))
+    if (!(0, import_node_fs2.existsSync)(dest))
       return null;
-    const raw = (0, import_node_fs3.readFileSync)(dest, "utf8").trim();
+    const raw = (0, import_node_fs2.readFileSync)(dest, "utf8").trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
@@ -657,7 +532,7 @@ function fileRead(dest) {
 }
 function fileDelete(dest) {
   try {
-    (0, import_node_fs3.rmSync)(dest, { force: true });
+    (0, import_node_fs2.rmSync)(dest, { force: true });
   } catch {
   }
 }
@@ -737,7 +612,7 @@ function deleteDeviceMintCredential() {
   deleteMintCredentialCore(KEYRING_SERVICE, getDeviceFileBackendPath());
 }
 function getDeviceFileBackendPath() {
-  return (0, import_node_path3.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
+  return (0, import_node_path2.join)(getHomeDir(), ".gramatr", FILE_BACKEND_NAME);
 }
 function isMintCredentialUsable(record, now = Date.now()) {
   if (!record)
@@ -747,13 +622,13 @@ function isMintCredentialUsable(record, now = Date.now()) {
     return false;
   return exp - 6e4 > now;
 }
-var import_node_child_process2, import_node_fs3, import_node_path3, spawnImpl, platformImpl, KEYRING_SERVICE, KEYRING_ACCOUNT, FILE_BACKEND_NAME, KEYRING_CMD_TIMEOUT_MS;
+var import_node_child_process2, import_node_fs2, import_node_path2, spawnImpl, platformImpl, KEYRING_SERVICE, KEYRING_ACCOUNT, FILE_BACKEND_NAME, KEYRING_CMD_TIMEOUT_MS;
 var init_mint_credential_store = __esm({
   "dist/hooks/lib/mint-credential-store.js"() {
     "use strict";
     import_node_child_process2 = require("node:child_process");
-    import_node_fs3 = require("node:fs");
-    import_node_path3 = require("node:path");
+    import_node_fs2 = require("node:fs");
+    import_node_path2 = require("node:path");
     init_config_runtime();
     spawnImpl = import_node_child_process2.spawnSync;
     platformImpl = null;
@@ -761,6 +636,103 @@ var init_mint_credential_store = __esm({
     KEYRING_ACCOUNT = "gramatr";
     FILE_BACKEND_NAME = ".mint-credential";
     KEYRING_CMD_TIMEOUT_MS = 3e3;
+  }
+});
+
+// ../proof-crypto/dist/index.js
+function generateEd25519KeyPair() {
+  const { privateKey, publicKey } = (0, import_node_crypto.generateKeyPairSync)("ed25519");
+  return { privateKey, publicKey };
+}
+function toPublicJwk(publicKey) {
+  const jwk = publicKey.export({ format: "jwk" });
+  if (!jwk.x) {
+    throw new Error('proof-crypto: public key JWK export missing required "x" member');
+  }
+  return { kty: "OKP", crv: "Ed25519", x: jwk.x };
+}
+function jwkThumbprint(jwk) {
+  const canonical = `{"crv":"${jwk.crv}","kty":"${jwk.kty}","x":"${jwk.x}"}`;
+  return (0, import_node_crypto.createHash)("sha256").update(canonical).digest("base64url");
+}
+function b64url(input) {
+  return Buffer.from(input).toString("base64url");
+}
+function buildCompactEnvelope(privateKey, publicJwk, typ, payload) {
+  const header = { typ, alg: "EdDSA", jwk: publicJwk };
+  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
+  const signature = (0, import_node_crypto.sign)(null, Buffer.from(signingInput, "ascii"), privateKey);
+  return `${signingInput}.${b64url(signature)}`;
+}
+var import_node_crypto;
+var init_dist = __esm({
+  "../proof-crypto/dist/index.js"() {
+    "use strict";
+    import_node_crypto = require("node:crypto");
+  }
+});
+
+// dist/hooks/lib/dpop-key.js
+var init_dpop_key = __esm({
+  "dist/hooks/lib/dpop-key.js"() {
+    "use strict";
+    init_dist();
+  }
+});
+
+// dist/hooks/lib/session-rest-token.js
+function getSessionTokenPath(projectDir) {
+  return (0, import_node_path4.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
+}
+function normalizeRestTokenBlock(block) {
+  if (!block || typeof block !== "object")
+    return null;
+  const { token, expires_at, base_url, aud, issued_at, written_at, session_id } = block;
+  if (typeof token === "string" && token.length > 0 && typeof expires_at === "string" && expires_at.length > 0 && typeof base_url === "string" && base_url.length > 0 && typeof aud === "string" && aud.length > 0) {
+    const file = { token, expires_at, base_url, aud };
+    if (typeof issued_at === "string" && issued_at.length > 0)
+      file.issued_at = issued_at;
+    if (typeof written_at === "string" && written_at.length > 0)
+      file.written_at = written_at;
+    if (typeof session_id === "string" && session_id.length > 0)
+      file.session_id = session_id;
+    return file;
+  }
+  return null;
+}
+function readSessionToken(projectDir) {
+  const dest = getSessionTokenPath(projectDir);
+  try {
+    if (!(0, import_node_fs4.existsSync)(dest))
+      return null;
+    const parsed = JSON.parse((0, import_node_fs4.readFileSync)(dest, "utf8"));
+    return normalizeRestTokenBlock(parsed);
+  } catch {
+    return null;
+  }
+}
+function isSessionTokenValid(file, now = Date.now()) {
+  if (!file)
+    return false;
+  const exp = Date.parse(file.expires_at);
+  if (Number.isNaN(exp))
+    return false;
+  return exp - SESSION_TOKEN_EXPIRY_SKEW_MS > now;
+}
+function apiV1Base(baseUrl) {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  return `${trimmed}/api/v1`;
+}
+var import_node_fs4, import_node_path4, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS;
+var init_session_rest_token = __esm({
+  "dist/hooks/lib/session-rest-token.js"() {
+    "use strict";
+    import_node_fs4 = require("node:fs");
+    import_node_path4 = require("node:path");
+    init_dpop_key();
+    GRAMATR_DIR2 = ".gramatr";
+    SESSION_FILE = ".session";
+    SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
   }
 });
 
@@ -2581,115 +2553,7 @@ var require_proper_lockfile = __commonJS({
   }
 });
 
-// dist/bin/plugin-proxy.js
-var plugin_proxy_exports = {};
-__export(plugin_proxy_exports, {
-  __resetDeviceFlowStateForTests: () => __resetDeviceFlowStateForTests,
-  handleMessage: () => handleMessage,
-  onTokenFileChanged: () => onTokenFileChanged,
-  startTokenFileWatch: () => startTokenFileWatch
-});
-module.exports = __toCommonJS(plugin_proxy_exports);
-var import_node_readline = require("node:readline");
-var import_node_child_process5 = require("node:child_process");
-var import_node_fs8 = require("node:fs");
-var import_node_path7 = require("node:path");
-var import_node_url = require("node:url");
-init_config_runtime();
-init_project_state();
-init_session_rest_token();
-init_mint_credential_store();
-
-// dist/hooks/lib/credential-heal.js
-var import_node_fs4 = require("node:fs");
-var import_node_path4 = require("node:path");
-init_config_runtime();
-function classifyDeadState(signal) {
-  const err = (signal.oauthError ?? "").toLowerCase();
-  const desc = (signal.errorDescription ?? "").toLowerCase();
-  if (err === "invalid_client" || desc.includes("client is not registered")) {
-    return "invalid_client";
-  }
-  if (signal.httpStatus === 400 && (desc.includes("pkce required") || desc.includes("code_challenge") || err === "invalid_request")) {
-    return "pkce_deadlock";
-  }
-  if (err === "invalid_grant" || err === "revoked" || err === "expired_token" || desc.includes("revoked") || desc.includes("token family")) {
-    return "revoked_family";
-  }
-  if (desc.includes("token has expired")) {
-    return "expired";
-  }
-  return null;
-}
-function getPluginTokenPath() {
-  const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
-  if (!pluginDataDir)
-    return null;
-  return (0, import_node_path4.join)(pluginDataDir, "token.json");
-}
-function readValidPluginToken() {
-  const tokenPath = getPluginTokenPath();
-  if (!tokenPath)
-    return null;
-  try {
-    const raw = JSON.parse((0, import_node_fs4.readFileSync)(tokenPath, "utf8"));
-    const token = raw.token;
-    if (typeof token !== "string" || token.split(".").length !== 3)
-      return null;
-    const payloadSegment = token.split(".")[1];
-    const padded = payloadSegment.padEnd(payloadSegment.length + (4 - payloadSegment.length % 4) % 4, "=");
-    const payload = JSON.parse(Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
-    const exp = typeof payload.exp === "number" ? payload.exp : 0;
-    if (exp <= Math.floor(Date.now() / 1e3) + 60)
-      return null;
-    return token;
-  } catch {
-    return null;
-  }
-}
-function purgePluginToken() {
-  const tokenPath = getPluginTokenPath();
-  if (!tokenPath)
-    return false;
-  try {
-    if (!(0, import_node_fs4.existsSync)(tokenPath))
-      return false;
-    (0, import_node_fs4.rmSync)(tokenPath, { force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function reconnectMessage(kind) {
-  switch (kind) {
-    case "invalid_client":
-      return "gr\u0101matr: your cached connection was rotated out (invalid_client). Run /mcp and reconnect gr\u0101matr to re-register cleanly.";
-    case "pkce_deadlock":
-      return "gr\u0101matr: the cached connection is stuck (PKCE deadlock). Run /mcp and reconnect gr\u0101matr to start a fresh login.";
-    case "revoked_family":
-      return "gr\u0101matr: your session credential was revoked. Run /mcp and reconnect gr\u0101matr to re-authenticate.";
-    case "expired":
-      return "gr\u0101matr: your session credential expired. Run /mcp and reconnect gr\u0101matr to re-authenticate.";
-  }
-}
-function healDeadCredential(kind) {
-  const purgedPluginToken = purgePluginToken();
-  const reauth = getPluginTokenPath() ? "device_flow" : "reconnect_instruction";
-  const message = reauth === "device_flow" ? "gr\u0101matr: cached credential was dead \u2014 purged it; re-running a clean device-flow login." : reconnectMessage(kind);
-  return { kind, purgedPluginToken, reauth, message };
-}
-
 // dist/hooks/lib/proxy-token-ladder.js
-var import_node_fs6 = require("node:fs");
-var import_node_path6 = require("node:path");
-init_session_rest_token();
-init_mint_credential_store();
-init_device_key();
-init_device_key_store();
-var SESSION_REST_TOKEN_PREFIX = "gmtr_sess_";
-var TOKEN_FILE = "token.json";
-var MINT_TIMEOUT_MS = 3e3;
-var PROXY_TOKEN_PROACTIVE_RENEW_FRACTION = 0.5;
 function getProxyTokenPath(dataDir) {
   return (0, import_node_path6.join)(dataDir, TOKEN_FILE);
 }
@@ -2768,8 +2632,6 @@ function normalizeMintedToken(block) {
     rec.expires_at = expires_at;
   return rec;
 }
-var MINT_LOCK_FILE = "token-mint.lock";
-var MINT_LOCK_STALE_MS = 5e3;
 async function withMintLock(dataDir, fn) {
   try {
     if (!(0, import_node_fs6.existsSync)(dataDir))
@@ -2862,6 +2724,125 @@ async function mintProxyTokenFromKeyring(dataDir, baseUrl, fetchImpl = fetch, no
     return { status: "minted", record: minted };
   });
 }
+var import_node_fs6, import_node_path6, SESSION_REST_TOKEN_PREFIX, TOKEN_FILE, MINT_TIMEOUT_MS, PROXY_TOKEN_PROACTIVE_RENEW_FRACTION, MINT_LOCK_FILE, MINT_LOCK_STALE_MS;
+var init_proxy_token_ladder = __esm({
+  "dist/hooks/lib/proxy-token-ladder.js"() {
+    "use strict";
+    import_node_fs6 = require("node:fs");
+    import_node_path6 = require("node:path");
+    init_session_rest_token();
+    init_mint_credential_store();
+    init_device_key();
+    init_device_key_store();
+    SESSION_REST_TOKEN_PREFIX = "gmtr_sess_";
+    TOKEN_FILE = "token.json";
+    MINT_TIMEOUT_MS = 3e3;
+    PROXY_TOKEN_PROACTIVE_RENEW_FRACTION = 0.5;
+    MINT_LOCK_FILE = "token-mint.lock";
+    MINT_LOCK_STALE_MS = 5e3;
+  }
+});
+
+// dist/bin/plugin-proxy.js
+var plugin_proxy_exports = {};
+__export(plugin_proxy_exports, {
+  __resetDeviceFlowStateForTests: () => __resetDeviceFlowStateForTests,
+  handleMessage: () => handleMessage,
+  onTokenFileChanged: () => onTokenFileChanged,
+  performColdStartMigrationCheck: () => performColdStartMigrationCheck,
+  startTokenFileWatch: () => startTokenFileWatch
+});
+module.exports = __toCommonJS(plugin_proxy_exports);
+var import_node_readline = require("node:readline");
+var import_node_child_process5 = require("node:child_process");
+var import_node_fs8 = require("node:fs");
+var import_node_path7 = require("node:path");
+var import_node_url = require("node:url");
+init_config_runtime();
+init_project_state();
+init_mint_credential_store();
+
+// dist/hooks/lib/credential-heal.js
+var import_node_fs3 = require("node:fs");
+var import_node_path3 = require("node:path");
+init_config_runtime();
+function classifyDeadState(signal) {
+  const err = (signal.oauthError ?? "").toLowerCase();
+  const desc = (signal.errorDescription ?? "").toLowerCase();
+  if (err === "invalid_client" || desc.includes("client is not registered")) {
+    return "invalid_client";
+  }
+  if (signal.httpStatus === 400 && (desc.includes("pkce required") || desc.includes("code_challenge") || err === "invalid_request")) {
+    return "pkce_deadlock";
+  }
+  if (err === "invalid_grant" || err === "revoked" || err === "expired_token" || desc.includes("revoked") || desc.includes("token family")) {
+    return "revoked_family";
+  }
+  if (desc.includes("token has expired")) {
+    return "expired";
+  }
+  return null;
+}
+function getPluginTokenPath() {
+  const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
+  if (!pluginDataDir)
+    return null;
+  return (0, import_node_path3.join)(pluginDataDir, "token.json");
+}
+function readValidPluginToken() {
+  const tokenPath = getPluginTokenPath();
+  if (!tokenPath)
+    return null;
+  try {
+    const raw = JSON.parse((0, import_node_fs3.readFileSync)(tokenPath, "utf8"));
+    const token = raw.token;
+    if (typeof token !== "string" || token.split(".").length !== 3)
+      return null;
+    const payloadSegment = token.split(".")[1];
+    const padded = payloadSegment.padEnd(payloadSegment.length + (4 - payloadSegment.length % 4) % 4, "=");
+    const payload = JSON.parse(Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    const exp = typeof payload.exp === "number" ? payload.exp : 0;
+    if (exp <= Math.floor(Date.now() / 1e3) + 60)
+      return null;
+    return token;
+  } catch {
+    return null;
+  }
+}
+function purgePluginToken() {
+  const tokenPath = getPluginTokenPath();
+  if (!tokenPath)
+    return false;
+  try {
+    if (!(0, import_node_fs3.existsSync)(tokenPath))
+      return false;
+    (0, import_node_fs3.rmSync)(tokenPath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reconnectMessage(kind) {
+  switch (kind) {
+    case "invalid_client":
+      return "gr\u0101matr: your cached connection was rotated out (invalid_client). Run /mcp and reconnect gr\u0101matr to re-register cleanly.";
+    case "pkce_deadlock":
+      return "gr\u0101matr: the cached connection is stuck (PKCE deadlock). Run /mcp and reconnect gr\u0101matr to start a fresh login.";
+    case "revoked_family":
+      return "gr\u0101matr: your session credential was revoked. Run /mcp and reconnect gr\u0101matr to re-authenticate.";
+    case "expired":
+      return "gr\u0101matr: your session credential expired. Run /mcp and reconnect gr\u0101matr to re-authenticate.";
+  }
+}
+function healDeadCredential(kind) {
+  const purgedPluginToken = purgePluginToken();
+  const reauth = getPluginTokenPath() ? "device_flow" : "reconnect_instruction";
+  const message = reauth === "device_flow" ? "gr\u0101matr: cached credential was dead \u2014 purged it; re-running a clean device-flow login." : reconnectMessage(kind);
+  return { kind, purgedPluginToken, reauth, message };
+}
+
+// dist/bin/plugin-proxy.js
+init_proxy_token_ladder();
 
 // dist/hooks/lib/token-stale.js
 var TOKEN_STALE_ERROR_CODE = "token_stale";
@@ -2889,6 +2870,9 @@ function extractEnvelopeErrorCode(response) {
   }
   return null;
 }
+
+// dist/bin/plugin-proxy.js
+init_session_rest_token();
 
 // dist/hooks/lib/process-pin.js
 var import_node_crypto4 = require("node:crypto");
@@ -3042,8 +3026,8 @@ function getProcessPin(options = {}) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.43.19") {
-      return "0.43.19";
+    if ("0.44.0") {
+      return "0.44.0";
     }
   } catch {
   }
@@ -3332,6 +3316,37 @@ function writeSessionBootstrapState(responseText, projectDir) {
   } catch {
   }
 }
+function isProxyTokenCurrentlyLive(now = Date.now()) {
+  if (!PLUGIN_DATA_DIR)
+    return false;
+  const record = readProxyToken(PLUGIN_DATA_DIR);
+  if (!record)
+    return false;
+  if (!record.expires_at)
+    return true;
+  const exp = Date.parse(record.expires_at);
+  if (Number.isNaN(exp))
+    return true;
+  return exp - 3e4 > now;
+}
+async function performColdStartMigrationCheck() {
+  if (!PLUGIN_DATA_DIR)
+    return;
+  if (isProxyTokenCurrentlyLive())
+    return;
+  const bootstrapProjectDir = resolveProjectDir({ cwd: process.cwd(), clientType: "claude-code" });
+  const sessionFile = readSessionToken(bootstrapProjectDir);
+  if (!sessionFile || !isSessionTokenValid(sessionFile))
+    return;
+  try {
+    const staleToken = readProxyToken(PLUGIN_DATA_DIR)?.token;
+    const outcome = await mintProxyTokenFromKeyring(PLUGIN_DATA_DIR, REMOTE_BASE, fetch, Date.now(), staleToken);
+    if (outcome.status === "minted") {
+      process.stderr.write("gr\u0101matr-proxy: cold-start migration \u2014 re-minted token.json from the keyring (Unit 5)\n");
+    }
+  } catch {
+  }
+}
 function buildBootstrapNoOpResult(projectDir) {
   try {
     const raw = (0, import_node_fs8.readFileSync)((0, import_node_path7.join)(projectDir, ".gramatr", "session.json"), "utf8");
@@ -3543,7 +3558,7 @@ async function handleMessage(msg) {
       const cwd = typeof args.cwd === "string" ? args.cwd : process.cwd();
       const bootstrapProjectDir = resolveProjectDir({ cwd, clientType: "claude-code" });
       const sessionJsonExists = (0, import_node_fs8.existsSync)((0, import_node_path7.join)(bootstrapProjectDir, ".gramatr", "session.json"));
-      if (shouldSkipBootstrap(bootstrapProjectDir, sessionJsonExists)) {
+      if (sessionJsonExists && isProxyTokenCurrentlyLive()) {
         const noOpResult = buildBootstrapNoOpResult(bootstrapProjectDir);
         if (noOpResult) {
           process.stderr.write("gr\u0101matr-proxy: tools/call session_bootstrap \u2192 no-op (live token + session)\n");
@@ -3587,7 +3602,6 @@ async function handleMessage(msg) {
         if (text) {
           try {
             const parsed = JSON.parse(text);
-            persistBootstrapRestToken(resolveProjectDir({ cwd, clientType: "claude-code" }), parsed.rest_token);
             const mc = parsed.mint_credential;
             if (mc && typeof mc.token === "string" && mc.token.length > 0 && typeof mc.expires_at === "string" && mc.expires_at.length > 0 && typeof mc.device_id === "string" && mc.device_id.length > 0) {
               const responseProjectId = parsed.project_id ?? parsed.gramatr_project_id;
@@ -3724,6 +3738,7 @@ async function main() {
   process.stderr.write(`gr\u0101matr-proxy: starting \u2014 token ${getToken() ? "found" : "not found (call gramatr_authenticate)"}
 `);
   startTokenFileWatch();
+  void performColdStartMigrationCheck();
   rl.on("line", (line) => {
     const trimmed = line.trim();
     if (!trimmed)
@@ -3766,5 +3781,6 @@ if (!process.env.GRAMATR_PROXY_NO_AUTOSTART) {
   __resetDeviceFlowStateForTests,
   handleMessage,
   onTokenFileChanged,
+  performColdStartMigrationCheck,
   startTokenFileWatch
 });

@@ -413,6 +413,102 @@ var init_project_state = __esm({
   }
 });
 
+// dist/hooks/lib/git-remote-parser.js
+function parseGitRemote(url) {
+  if (!url || typeof url !== "string")
+    return null;
+  const trimmed = url.trim();
+  if (!trimmed)
+    return null;
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
+  const scpMatch = !hasProtocol && trimmed.match(/^[^@]+@[^:]+:(.+?)(?:\.git)?\s*$/);
+  if (scpMatch) {
+    const path2 = scpMatch[1];
+    return extractOwnerRepo(path2);
+  }
+  const protoMatch = trimmed.match(/^(?:https?|ssh|git):\/\//);
+  if (protoMatch) {
+    try {
+      let normalized = trimmed;
+      const sshPortMatch = normalized.match(/^ssh:\/\/([^/]+):(\d+)\/(.+)$/);
+      if (sshPortMatch) {
+        normalized = `ssh://${sshPortMatch[1]}/${sshPortMatch[3]}`;
+      }
+      const parsed = new URL(normalized);
+      let pathname = parsed.pathname;
+      if (pathname.startsWith("/")) {
+        pathname = pathname.slice(1);
+      }
+      if (pathname.endsWith(".git")) {
+        pathname = pathname.slice(0, -4);
+      }
+      if (pathname.endsWith("/")) {
+        pathname = pathname.slice(0, -1);
+      }
+      return extractOwnerRepo(pathname);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+function extractOwnerRepo(path2) {
+  if (!path2)
+    return null;
+  const slashIndex = path2.indexOf("/");
+  if (slashIndex < 1)
+    return null;
+  const segments = path2.split("/");
+  if (segments.some((s) => !s))
+    return null;
+  return path2;
+}
+var init_git_remote_parser = __esm({
+  "dist/hooks/lib/git-remote-parser.js"() {
+    "use strict";
+  }
+});
+
+// dist/hooks/lib/git-config-reader.js
+function readGitRemoteFromConfigSync(cwd) {
+  const gitPath = path.join(cwd, ".git");
+  if (!(0, import_fs.existsSync)(gitPath))
+    return null;
+  let configPath2 = path.join(gitPath, "config");
+  if (!(0, import_fs.existsSync)(configPath2)) {
+    let ptrRaw;
+    try {
+      ptrRaw = (0, import_fs.readFileSync)(gitPath, "utf8");
+    } catch {
+      return null;
+    }
+    const ptr = ptrRaw.match(/gitdir:\s*(.+)/)?.[1]?.trim();
+    if (!ptr)
+      return null;
+    const resolved = path.isAbsolute(ptr) ? ptr : path.resolve(cwd, ptr);
+    configPath2 = path.join(resolved, "config");
+  }
+  let cfg;
+  try {
+    cfg = (0, import_fs.readFileSync)(configPath2, "utf8");
+  } catch {
+    return null;
+  }
+  const origin = cfg.match(/\[remote\s+"origin"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
+  if (origin)
+    return origin;
+  const any = cfg.match(/\[remote\s+"[^"]+"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
+  return any ?? null;
+}
+var import_fs, path;
+var init_git_config_reader = __esm({
+  "dist/hooks/lib/git-config-reader.js"() {
+    "use strict";
+    import_fs = require("fs");
+    path = __toESM(require("path"), 1);
+  }
+});
+
 // dist/hooks/lib/token-stale.js
 function isTokenStaleSignal(signal) {
   if (signal.httpStatus !== 401)
@@ -3100,93 +3196,8 @@ function readCommittedProjectId(dir) {
 
 // dist/hooks/lib/resolve-home.js
 var import_node_child_process4 = require("node:child_process");
-
-// dist/hooks/lib/git-remote-parser.js
-function parseGitRemote(url) {
-  if (!url || typeof url !== "string")
-    return null;
-  const trimmed = url.trim();
-  if (!trimmed)
-    return null;
-  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
-  const scpMatch = !hasProtocol && trimmed.match(/^[^@]+@[^:]+:(.+?)(?:\.git)?\s*$/);
-  if (scpMatch) {
-    const path2 = scpMatch[1];
-    return extractOwnerRepo(path2);
-  }
-  const protoMatch = trimmed.match(/^(?:https?|ssh|git):\/\//);
-  if (protoMatch) {
-    try {
-      let normalized = trimmed;
-      const sshPortMatch = normalized.match(/^ssh:\/\/([^/]+):(\d+)\/(.+)$/);
-      if (sshPortMatch) {
-        normalized = `ssh://${sshPortMatch[1]}/${sshPortMatch[3]}`;
-      }
-      const parsed = new URL(normalized);
-      let pathname = parsed.pathname;
-      if (pathname.startsWith("/")) {
-        pathname = pathname.slice(1);
-      }
-      if (pathname.endsWith(".git")) {
-        pathname = pathname.slice(0, -4);
-      }
-      if (pathname.endsWith("/")) {
-        pathname = pathname.slice(0, -1);
-      }
-      return extractOwnerRepo(pathname);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-function extractOwnerRepo(path2) {
-  if (!path2)
-    return null;
-  const slashIndex = path2.indexOf("/");
-  if (slashIndex < 1)
-    return null;
-  const segments = path2.split("/");
-  if (segments.some((s) => !s))
-    return null;
-  return path2;
-}
-
-// dist/hooks/lib/git-config-reader.js
-var import_fs = require("fs");
-var path = __toESM(require("path"), 1);
-function readGitRemoteFromConfigSync(cwd) {
-  const gitPath = path.join(cwd, ".git");
-  if (!(0, import_fs.existsSync)(gitPath))
-    return null;
-  let configPath2 = path.join(gitPath, "config");
-  if (!(0, import_fs.existsSync)(configPath2)) {
-    let ptrRaw;
-    try {
-      ptrRaw = (0, import_fs.readFileSync)(gitPath, "utf8");
-    } catch {
-      return null;
-    }
-    const ptr = ptrRaw.match(/gitdir:\s*(.+)/)?.[1]?.trim();
-    if (!ptr)
-      return null;
-    const resolved = path.isAbsolute(ptr) ? ptr : path.resolve(cwd, ptr);
-    configPath2 = path.join(resolved, "config");
-  }
-  let cfg;
-  try {
-    cfg = (0, import_fs.readFileSync)(configPath2, "utf8");
-  } catch {
-    return null;
-  }
-  const origin = cfg.match(/\[remote\s+"origin"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
-  if (origin)
-    return origin;
-  const any = cfg.match(/\[remote\s+"[^"]+"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
-  return any ?? null;
-}
-
-// dist/hooks/lib/resolve-home.js
+init_git_remote_parser();
+init_git_config_reader();
 init_project_state();
 var SCRATCH_SLUG = "scratch";
 function defaultGetGitRemote(projectDir) {

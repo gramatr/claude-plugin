@@ -84,6 +84,15 @@ function sanitizeEnvToken(raw) {
     return "";
   return raw;
 }
+function getGramatrTokenFromEnv() {
+  const current = sanitizeEnvToken(process.env.GRAMATR_TOKEN);
+  if (current)
+    return current;
+  const legacy = sanitizeEnvToken(process.env.AIOS_MCP_TOKEN);
+  if (legacy)
+    return legacy;
+  return null;
+}
 function getGramatrUrlFromEnv() {
   const url = process.env.GRAMATR_URL;
   return url && url.length > 0 ? url : null;
@@ -364,13 +373,13 @@ function readMintCredential(projectId) {
 function deleteMintCredential(projectId) {
   deleteMintCredentialCore(scopedKeyringService(projectId), getFileBackendPath(projectId));
 }
-function isMintCredentialUsable(record, now = Date.now()) {
+function isMintCredentialUsable(record, now2 = Date.now()) {
   if (!record)
     return false;
   const exp = Date.parse(record.expires_at);
   if (Number.isNaN(exp))
     return false;
-  return exp - 6e4 > now;
+  return exp - 6e4 > now2;
 }
 var import_node_child_process, import_node_fs, import_node_path, spawnImpl, platformImpl, KEYRING_SERVICE, KEYRING_ACCOUNT, FILE_BACKEND_NAME, KEYRING_CMD_TIMEOUT_MS;
 var init_mint_credential_store = __esm({
@@ -1569,11 +1578,11 @@ var require_graceful_fs = __commonJS({
     }
     var retryTimer;
     function resetQueue() {
-      var now = Date.now();
+      var now2 = Date.now();
       for (var i = 0; i < fs2[gracefulQueue].length; ++i) {
         if (fs2[gracefulQueue][i].length > 2) {
-          fs2[gracefulQueue][i][3] = now;
-          fs2[gracefulQueue][i][4] = now;
+          fs2[gracefulQueue][i][3] = now2;
+          fs2[gracefulQueue][i][4] = now2;
         }
       }
       retry();
@@ -2066,11 +2075,11 @@ var require_mtime_precision = __commonJS({
       });
     }
     function getMtime(precision) {
-      let now = Date.now();
+      let now2 = Date.now();
       if (precision === "s") {
-        now = Math.ceil(now / 1e3) * 1e3;
+        now2 = Math.ceil(now2 / 1e3) * 1e3;
       }
-      return new Date(now);
+      return new Date(now2);
     }
     module2.exports.probe = probe;
     module2.exports.getMtime = getMtime;
@@ -2474,21 +2483,21 @@ function resolveProjectIdForMint(projectDir) {
     return null;
   }
 }
-async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now = Date.now(), knownBadToken) {
+async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken) {
   const projectId = resolveProjectIdForMint(projectDir);
   if (!projectId) {
     return { status: "no_credential" };
   }
-  if (!isMintCredentialUsable(readMintCredential(projectId), now)) {
+  if (!isMintCredentialUsable(readMintCredential(projectId), now2)) {
     return { status: "no_credential" };
   }
   return withMintLock(projectDir, async () => {
     const current = readSessionToken(projectDir);
-    if (isSessionTokenValid(current, now) && (!knownBadToken || current?.token !== knownBadToken)) {
+    if (isSessionTokenValid(current, now2) && (!knownBadToken || current?.token !== knownBadToken)) {
       return { status: "minted", file: current };
     }
     const record = readMintCredential(projectId);
-    if (!isMintCredentialUsable(record, now) || !record) {
+    if (!isMintCredentialUsable(record, now2) || !record) {
       return { status: "no_credential" };
     }
     const trimmed = baseUrl.replace(/\/+$/, "");
@@ -2560,6 +2569,536 @@ var init_mint_session_token = __esm({
   }
 });
 
+// dist/hooks/lib/git-remote-parser.js
+function parseGitRemote(url) {
+  if (!url || typeof url !== "string")
+    return null;
+  const trimmed = url.trim();
+  if (!trimmed)
+    return null;
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed);
+  const scpMatch = !hasProtocol && trimmed.match(/^[^@]+@[^:]+:(.+?)(?:\.git)?\s*$/);
+  if (scpMatch) {
+    const path2 = scpMatch[1];
+    return extractOwnerRepo(path2);
+  }
+  const protoMatch = trimmed.match(/^(?:https?|ssh|git):\/\//);
+  if (protoMatch) {
+    try {
+      let normalized = trimmed;
+      const sshPortMatch = normalized.match(/^ssh:\/\/([^/]+):(\d+)\/(.+)$/);
+      if (sshPortMatch) {
+        normalized = `ssh://${sshPortMatch[1]}/${sshPortMatch[3]}`;
+      }
+      const parsed = new URL(normalized);
+      let pathname = parsed.pathname;
+      if (pathname.startsWith("/")) {
+        pathname = pathname.slice(1);
+      }
+      if (pathname.endsWith(".git")) {
+        pathname = pathname.slice(0, -4);
+      }
+      if (pathname.endsWith("/")) {
+        pathname = pathname.slice(0, -1);
+      }
+      return extractOwnerRepo(pathname);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+function extractOwnerRepo(path2) {
+  if (!path2)
+    return null;
+  const slashIndex = path2.indexOf("/");
+  if (slashIndex < 1)
+    return null;
+  const segments = path2.split("/");
+  if (segments.some((s) => !s))
+    return null;
+  return path2;
+}
+var init_git_remote_parser = __esm({
+  "dist/hooks/lib/git-remote-parser.js"() {
+    "use strict";
+  }
+});
+
+// dist/hooks/lib/git-config-reader.js
+function readGitRemoteFromConfigSync(cwd) {
+  const gitPath = path.join(cwd, ".git");
+  if (!(0, import_fs.existsSync)(gitPath))
+    return null;
+  let configPath2 = path.join(gitPath, "config");
+  if (!(0, import_fs.existsSync)(configPath2)) {
+    let ptrRaw;
+    try {
+      ptrRaw = (0, import_fs.readFileSync)(gitPath, "utf8");
+    } catch {
+      return null;
+    }
+    const ptr = ptrRaw.match(/gitdir:\s*(.+)/)?.[1]?.trim();
+    if (!ptr)
+      return null;
+    const resolved = path.isAbsolute(ptr) ? ptr : path.resolve(cwd, ptr);
+    configPath2 = path.join(resolved, "config");
+  }
+  let cfg;
+  try {
+    cfg = (0, import_fs.readFileSync)(configPath2, "utf8");
+  } catch {
+    return null;
+  }
+  const origin = cfg.match(/\[remote\s+"origin"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
+  if (origin)
+    return origin;
+  const any = cfg.match(/\[remote\s+"[^"]+"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
+  return any ?? null;
+}
+var import_fs, path;
+var init_git_config_reader = __esm({
+  "dist/hooks/lib/git-config-reader.js"() {
+    "use strict";
+    import_fs = require("fs");
+    path = __toESM(require("path"), 1);
+  }
+});
+
+// dist/hooks/generated/hook-timeouts.js
+var HOOK_INPUT_READ_TIMEOUT_MS, HEALTH_CHECK_TIMEOUT_MS;
+var init_hook_timeouts = __esm({
+  "dist/hooks/generated/hook-timeouts.js"() {
+    "use strict";
+    HOOK_INPUT_READ_TIMEOUT_MS = 500;
+    HEALTH_CHECK_TIMEOUT_MS = 5e3;
+  }
+});
+
+// dist/hooks/lib/gramatr-hook-utils.js
+var gramatr_hook_utils_exports = {};
+__export(gramatr_hook_utils_exports, {
+  appendLine: () => appendLine,
+  checkServerHealth: () => checkServerHealth,
+  createDefaultConfig: () => createDefaultConfig,
+  deriveProjectId: () => deriveProjectId,
+  getCommitCountSince: () => getCommitCountSince,
+  getCommitLogSince: () => getCommitLogSince,
+  getCommitsSince: () => getCommitsSince,
+  getConfigPath: () => getConfigPath,
+  getFilesChanged: () => getFilesChanged,
+  getGitContext: () => getGitContext,
+  getGitStatusShort: () => getGitStatusShort,
+  getRecentCommits: () => getRecentCommits,
+  log: () => log,
+  migrateConfig: () => migrateConfig,
+  migrateSettingsJson: () => migrateSettingsJson,
+  now: () => now,
+  readGmtrConfig: () => readGmtrConfig,
+  readHookInput: () => readHookInput,
+  readJsonFile: () => readJsonFile,
+  resolveAuthToken: () => resolveAuthToken,
+  resolveMcpUrl: () => resolveMcpUrl,
+  resolveUserId: () => resolveUserId,
+  resolveUserName: () => resolveUserName,
+  writeGmtrConfig: () => writeGmtrConfig,
+  writeJsonFile: () => writeJsonFile
+});
+function log(msg) {
+  process.stderr.write(msg + "\n");
+}
+function now() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+async function readHookInput() {
+  const chunks = [];
+  await new Promise((resolve4) => {
+    const timeout = setTimeout(() => {
+      process.stdin.destroy();
+      resolve4();
+    }, HOOK_INPUT_READ_TIMEOUT_MS);
+    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    process.stdin.on("end", () => {
+      clearTimeout(timeout);
+      resolve4();
+    });
+    process.stdin.on("error", () => {
+      clearTimeout(timeout);
+      resolve4();
+    });
+    process.stdin.resume();
+  });
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw.trim())
+    return { session_id: "unknown" };
+  return JSON.parse(raw);
+}
+function getGitContext() {
+  try {
+    const isGit = (0, import_child_process.execSync)("git rev-parse --is-inside-work-tree", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    if (isGit !== "true")
+      return null;
+    const root = (0, import_child_process.execSync)("git rev-parse --show-toplevel", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const remote = readGitRemoteFromConfigSync(root) ?? "no-remote";
+    const branch = (0, import_child_process.execSync)("git rev-parse --abbrev-ref HEAD", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const commit = (0, import_child_process.execSync)("git rev-parse --short HEAD", { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const projectName = (0, import_path.basename)(root);
+    return { root, remote, branch, commit, projectName };
+  } catch {
+    return null;
+  }
+}
+function deriveProjectId(gitRemote, fallbackName) {
+  if (!gitRemote || gitRemote === "no-remote") {
+    return fallbackName || "unknown";
+  }
+  const parsed = parseGitRemote(gitRemote);
+  return parsed || fallbackName || "unknown";
+}
+function getConfigPath(rootDir) {
+  return (0, import_path.join)(rootDir, ".gramatr", "settings.json");
+}
+function readGmtrConfig(rootDir) {
+  try {
+    const configPath2 = getConfigPath(rootDir);
+    if (!(0, import_fs2.existsSync)(configPath2))
+      return null;
+    const raw = (0, import_fs2.readFileSync)(configPath2, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function writeGmtrConfig(rootDir, config) {
+  const configPath2 = getConfigPath(rootDir);
+  const tmpPath = configPath2 + ".tmp";
+  const dir = (0, import_path.join)(rootDir, ".gramatr");
+  if (!(0, import_fs2.existsSync)(dir)) {
+    (0, import_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
+  }
+  (0, import_fs2.writeFileSync)(tmpPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 384 });
+  (0, import_fs2.renameSync)(tmpPath, configPath2);
+  try {
+    (0, import_fs2.chmodSync)(configPath2, 384);
+  } catch {
+  }
+}
+function migrateConfig(config, projectId) {
+  const version = config.config_version || "0";
+  if (version !== "0" && version !== "null") {
+    config.project_id = projectId;
+    return config;
+  }
+  log("  Migrating settings.json to v2.1...");
+  const oldProjectId = config.project_id || config.project_name || "";
+  const oldProjectName = config.project_name || "";
+  const knownAs = new Set(config.previously_known_as || []);
+  if (oldProjectId && oldProjectId !== projectId) {
+    knownAs.add(oldProjectId);
+  }
+  if (oldProjectName && oldProjectName !== projectId && oldProjectName !== oldProjectId) {
+    knownAs.add(oldProjectName);
+  }
+  config.config_version = "2.1";
+  config.project_id = projectId;
+  config.previously_known_as = Array.from(knownAs);
+  config.migrated_at = now();
+  log(`  Done migrating to v2.1 (project_id: ${projectId}, aliases: [${Array.from(knownAs).join(", ")}])`);
+  return config;
+}
+function createDefaultConfig(options) {
+  const ts = now();
+  return {
+    version: "2.0",
+    config_version: "2.1",
+    project_entity_id: null,
+    project_id: options.projectId,
+    project_name: options.projectName,
+    previously_known_as: [],
+    git_remote: options.gitRemote,
+    related_entities: {
+      databases: [],
+      people: [],
+      services: [],
+      concepts: [],
+      projects: []
+    },
+    metadata: {
+      created: ts
+    }
+  };
+}
+function resolveAuthToken() {
+  try {
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
+    if (config.token)
+      return config.token;
+  } catch {
+  }
+  const envToken = getGramatrTokenFromEnv();
+  if (envToken)
+    return envToken;
+  try {
+    const gmtrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
+    const settingsPath = (0, import_path.join)(gmtrDir, "settings.json");
+    const settings = JSON.parse((0, import_fs2.readFileSync)(settingsPath, "utf8"));
+    if (settings.auth?.api_key && settings.auth.api_key !== "REPLACE_WITH_YOUR_API_KEY") {
+      return settings.auth.api_key;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveUserId() {
+  try {
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
+    if (typeof config.user_id === "string" && config.user_id.length > 0)
+      return config.user_id;
+  } catch {
+  }
+  try {
+    const gramatrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
+    const settings = JSON.parse((0, import_fs2.readFileSync)((0, import_path.join)(gramatrDir, "settings.json"), "utf8"));
+    if (typeof settings?.auth?.user_id === "string" && settings.auth.user_id.length > 0)
+      return settings.auth.user_id;
+  } catch {
+  }
+  return null;
+}
+function resolveUserName() {
+  try {
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
+    if (typeof config.user?.name === "string" && config.user.name.length > 0) {
+      return config.user.name;
+    }
+  } catch {
+  }
+  return void 0;
+}
+function migrateSettingsJson() {
+  const gramatrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
+  const settingsPath = (0, import_path.join)(gramatrDir, "settings.json");
+  if (!(0, import_fs2.existsSync)(settingsPath))
+    return;
+  let settings;
+  try {
+    settings = JSON.parse((0, import_fs2.readFileSync)(settingsPath, "utf8"));
+  } catch {
+    return;
+  }
+  const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+  let config = {};
+  try {
+    config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
+  } catch {
+  }
+  let changed = false;
+  const token = settings?.auth?.api_key;
+  if (token && token !== "REPLACE_WITH_YOUR_API_KEY" && !config.token) {
+    config.token = token;
+    changed = true;
+  }
+  const userId = settings?.auth?.user_id;
+  if (userId && !config.user_id) {
+    config.user_id = userId;
+    changed = true;
+  }
+  const serverUrl = settings?.auth?.server_url;
+  if (serverUrl && !config.server_url) {
+    config.server_url = serverUrl;
+    changed = true;
+  }
+  const autoCompact = settings?.auto_compact;
+  if (autoCompact && !config.auto_compact) {
+    config.auto_compact = autoCompact;
+    changed = true;
+  }
+  const principalName = settings?.principal?.name;
+  if (principalName && !config.user?.name) {
+    if (!config.user)
+      config.user = {};
+    config.user.name = principalName;
+    changed = true;
+  }
+  const principalTimezone = settings?.principal?.timezone;
+  if (principalTimezone && !config.user?.timezone) {
+    if (!config.user)
+      config.user = {};
+    config.user.timezone = principalTimezone;
+    changed = true;
+  }
+  if (changed) {
+    try {
+      (0, import_fs2.writeFileSync)(configPath2, JSON.stringify(config, null, 2) + "\n");
+    } catch {
+      return;
+    }
+  }
+  try {
+    (0, import_fs2.unlinkSync)(settingsPath);
+  } catch {
+  }
+}
+function resolveMcpUrl() {
+  try {
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
+    if (config.server_url)
+      return config.server_url;
+  } catch {
+  }
+  try {
+    const gmtrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
+    const settingsPath = (0, import_path.join)(gmtrDir, "settings.json");
+    const settings = JSON.parse((0, import_fs2.readFileSync)(settingsPath, "utf8"));
+    if (settings.auth?.server_url)
+      return settings.auth.server_url;
+  } catch {
+  }
+  const envUrl = getGramatrUrlFromEnv();
+  if (envUrl)
+    return envUrl;
+  return "https://api.gramatr.com/mcp";
+}
+async function checkServerHealth(timeoutMs = HEALTH_CHECK_TIMEOUT_MS) {
+  const mcpUrl = resolveMcpUrl();
+  const baseUrl = mcpUrl.replace(/\/mcp$/, "");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      signal: controller.signal
+    });
+    if (response.ok) {
+      const body = await response.text();
+      return { healthy: true, detail: body };
+    } else if (response.status === 404 || response.status === 405) {
+      return { healthy: true, detail: "REACHABLE (no /health endpoint)" };
+    } else {
+      return { healthy: false, detail: `HTTP ${response.status}` };
+    }
+  } catch {
+    return { healthy: false, detail: `Cannot reach ${baseUrl}` };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+function readJsonFile(filePath) {
+  try {
+    if (!(0, import_fs2.existsSync)(filePath))
+      return null;
+    return JSON.parse((0, import_fs2.readFileSync)(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writeJsonFile(filePath, data) {
+  const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+  if (dir && !(0, import_fs2.existsSync)(dir)) {
+    (0, import_fs2.mkdirSync)(dir, { recursive: true });
+  }
+  (0, import_fs2.writeFileSync)(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
+}
+function appendLine(filePath, line) {
+  const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+  if (dir && !(0, import_fs2.existsSync)(dir)) {
+    (0, import_fs2.mkdirSync)(dir, { recursive: true });
+  }
+  (0, import_fs2.appendFileSync)(filePath, line + "\n", "utf8");
+}
+function getCommitCountSince(since) {
+  try {
+    const output = (0, import_child_process.execSync)(`git log --since="${since}" --oneline`, {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    if (!output)
+      return 0;
+    return output.split("\n").length;
+  } catch {
+    return 0;
+  }
+}
+function getCommitLogSince(since, maxCount = 5) {
+  try {
+    const output = (0, import_child_process.execSync)(`git log --since="${since}" --pretty=format:"%h - %s (%ar)" -${maxCount}`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    if (!output)
+      return [];
+    return output.split("\n");
+  } catch {
+    return [];
+  }
+}
+function getCommitsSince(since, maxCount = 5) {
+  try {
+    const output = (0, import_child_process.execSync)(`git log --since="${since}" --pretty=format:"%h %s" -${maxCount}`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    if (!output)
+      return [];
+    return output.split("\n");
+  } catch {
+    return [];
+  }
+}
+function getGitStatusShort(maxLines = 10) {
+  try {
+    const output = (0, import_child_process.execSync)("git status --short", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    if (!output)
+      return [];
+    return output.split("\n").slice(0, maxLines);
+  } catch {
+    return [];
+  }
+}
+function getFilesChanged(fromRef, toRef = "HEAD", maxCount = 10) {
+  try {
+    const output = (0, import_child_process.execSync)(`git diff --name-only ${fromRef}..${toRef}`, {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    if (!output)
+      return [];
+    return output.split("\n").slice(0, maxCount);
+  } catch {
+    return [];
+  }
+}
+function getRecentCommits(count = 3) {
+  try {
+    const output = (0, import_child_process.execSync)(`git log --oneline -${count}`, {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    if (!output)
+      return [];
+    return output.split("\n");
+  } catch {
+    return [];
+  }
+}
+var import_child_process, import_fs2, import_path, HOME;
+var init_gramatr_hook_utils = __esm({
+  "dist/hooks/lib/gramatr-hook-utils.js"() {
+    "use strict";
+    import_child_process = require("child_process");
+    import_fs2 = require("fs");
+    import_path = require("path");
+    init_git_remote_parser();
+    init_git_config_reader();
+    init_config_runtime();
+    init_hook_timeouts();
+    HOME = getHomeDir();
+  }
+});
+
 // dist/hooks/lib/session-rest-token.js
 function getSessionTokenPath(projectDir) {
   return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
@@ -2613,15 +3152,15 @@ function readSessionToken(projectDir) {
     return null;
   }
 }
-function isSessionTokenValid(file, now = Date.now()) {
+function isSessionTokenValid(file, now2 = Date.now()) {
   if (!file)
     return false;
   const exp = Date.parse(file.expires_at);
   if (Number.isNaN(exp))
     return false;
-  return exp - SESSION_TOKEN_EXPIRY_SKEW_MS > now;
+  return exp - SESSION_TOKEN_EXPIRY_SKEW_MS > now2;
 }
-function shouldProactivelyRenew(file, now = Date.now()) {
+function shouldProactivelyRenew(file, now2 = Date.now()) {
   if (!file)
     return false;
   const exp = Date.parse(file.expires_at);
@@ -2636,7 +3175,7 @@ function shouldProactivelyRenew(file, now = Date.now()) {
   const lifetime = exp - start;
   if (lifetime <= 0)
     return false;
-  const elapsed = now - start;
+  const elapsed = now2 - start;
   return elapsed >= lifetime * SESSION_TOKEN_PROACTIVE_RENEW_FRACTION;
 }
 function deleteSessionToken(projectDir) {
@@ -2711,28 +3250,37 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
   writeSessionToken(projectDir, fresh);
   return { status: "renewed", file: fresh };
 }
-async function attemptRung3Mint(projectDir, file, fetchImpl, now) {
+async function attemptRung3Mint(projectDir, file, fetchImpl, now2) {
   const { mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 } = await Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports));
-  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now, file.token);
+  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token);
 }
-async function handleRenewDenied(projectDir, file, fetchImpl, now) {
-  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now);
+async function handleRenewDenied(projectDir, file, fetchImpl, now2) {
+  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
   if (minted.status === "minted")
     return minted.file;
   deleteSessionToken(projectDir);
   return null;
 }
-async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Date.now()) {
+async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2) {
+  const [{ mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 }, { resolveMcpUrl: resolveMcpUrl2 }] = await Promise.all([
+    Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports)),
+    Promise.resolve().then(() => (init_gramatr_hook_utils(), gramatr_hook_utils_exports))
+  ]);
+  const baseUrl = resolveMcpUrl2().replace(/\/mcp\/?$/, "");
+  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2);
+  return outcome.status === "minted" ? outcome.file : null;
+}
+async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now()) {
   const file = readSessionToken(projectDir);
   if (!file)
-    return null;
-  if (isSessionTokenValid(file, now)) {
-    if (shouldProactivelyRenew(file, now)) {
+    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2);
+  if (isSessionTokenValid(file, now2)) {
+    if (shouldProactivelyRenew(file, now2)) {
       const outcome2 = await renewSessionToken(projectDir, file, fetchImpl);
       if (outcome2.status === "renewed")
         return outcome2.file;
       if (outcome2.status === "denied") {
-        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now);
+        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
         if (minted.status === "minted")
           return minted.file;
       }
@@ -2744,7 +3292,7 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now = Da
   if (outcome.status === "renewed")
     return outcome.file;
   if (outcome.status === "denied")
-    return handleRenewDenied(projectDir, file, fetchImpl, now);
+    return handleRenewDenied(projectDir, file, fetchImpl, now2);
   return file;
 }
 var import_node_fs5, import_node_path5, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS;
@@ -2967,71 +3515,7 @@ init_mint_session_token();
 var import_node_fs9 = require("node:fs");
 var import_node_path10 = require("node:path");
 init_config_runtime();
-
-// dist/hooks/lib/gramatr-hook-utils.js
-var import_fs2 = require("fs");
-var import_path = require("path");
-
-// dist/hooks/lib/git-config-reader.js
-var import_fs = require("fs");
-var path = __toESM(require("path"), 1);
-function readGitRemoteFromConfigSync(cwd) {
-  const gitPath = path.join(cwd, ".git");
-  if (!(0, import_fs.existsSync)(gitPath))
-    return null;
-  let configPath2 = path.join(gitPath, "config");
-  if (!(0, import_fs.existsSync)(configPath2)) {
-    let ptrRaw;
-    try {
-      ptrRaw = (0, import_fs.readFileSync)(gitPath, "utf8");
-    } catch {
-      return null;
-    }
-    const ptr = ptrRaw.match(/gitdir:\s*(.+)/)?.[1]?.trim();
-    if (!ptr)
-      return null;
-    const resolved = path.isAbsolute(ptr) ? ptr : path.resolve(cwd, ptr);
-    configPath2 = path.join(resolved, "config");
-  }
-  let cfg;
-  try {
-    cfg = (0, import_fs.readFileSync)(configPath2, "utf8");
-  } catch {
-    return null;
-  }
-  const origin = cfg.match(/\[remote\s+"origin"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
-  if (origin)
-    return origin;
-  const any = cfg.match(/\[remote\s+"[^"]+"\][^[]*?url\s*=\s*(.+)/)?.[1]?.trim();
-  return any ?? null;
-}
-
-// dist/hooks/lib/gramatr-hook-utils.js
-init_config_runtime();
-var HOME = getHomeDir();
-function resolveMcpUrl() {
-  try {
-    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
-    if (config.server_url)
-      return config.server_url;
-  } catch {
-  }
-  try {
-    const gmtrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
-    const settingsPath = (0, import_path.join)(gmtrDir, "settings.json");
-    const settings = JSON.parse((0, import_fs2.readFileSync)(settingsPath, "utf8"));
-    if (settings.auth?.server_url)
-      return settings.auth.server_url;
-  } catch {
-  }
-  const envUrl = getGramatrUrlFromEnv();
-  if (envUrl)
-    return envUrl;
-  return "https://api.gramatr.com/mcp";
-}
-
-// dist/hooks/lib/bootstrap-recovery.js
+init_gramatr_hook_utils();
 init_session_rest_token();
 
 // dist/user-config.js
@@ -3499,11 +3983,14 @@ async function recoverSessionToken(opts) {
   });
 }
 
+// dist/bin/ups-route.js
+init_gramatr_hook_utils();
+
 // dist/hooks/lib/credential-heal.js
 var import_node_fs10 = require("node:fs");
 var import_node_path11 = require("node:path");
 init_config_runtime();
-function isCachedMcpOAuthEntryStale(remoteUrl, now = Date.now()) {
+function isCachedMcpOAuthEntryStale(remoteUrl, now2 = Date.now()) {
   try {
     const credFile = (0, import_node_path11.resolve)(getHomeDir(), ".claude", ".credentials.json");
     const creds = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
@@ -3515,7 +4002,7 @@ function isCachedMcpOAuthEntryStale(remoteUrl, now = Date.now()) {
         continue;
       if (!entry.accessToken)
         return true;
-      if (entry.expiresAt && now >= Number(entry.expiresAt))
+      if (entry.expiresAt && now2 >= Number(entry.expiresAt))
         return true;
     }
   } catch {
@@ -3670,6 +4157,7 @@ init_hook_promotion_telemetry();
 var import_node_fs13 = require("node:fs");
 var import_node_path14 = require("node:path");
 init_project_state();
+init_git_config_reader();
 init_hook_promotion_telemetry();
 function normalizeGitRemote(url) {
   if (typeof url !== "string")
@@ -4186,8 +4674,8 @@ function loudRecoveryFailureWarning(reason, status) {
     }
   };
 }
-function degradedSurfaceWarning(remoteUrl, now = Date.now(), scriptPath = process.argv[1] ?? "", reason, outcomeStatus) {
-  if (isCachedMcpOAuthEntryStale(remoteUrl, now) || outcomeStatus === "unauthorized") {
+function degradedSurfaceWarning(remoteUrl, now2 = Date.now(), scriptPath = process.argv[1] ?? "", reason, outcomeStatus) {
+  if (isCachedMcpOAuthEntryStale(remoteUrl, now2) || outcomeStatus === "unauthorized") {
     try {
       const result = runStaleAuthPurge(remoteUrl);
       return {

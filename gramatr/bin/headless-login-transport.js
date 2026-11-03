@@ -70,6 +70,63 @@ var init_config_runtime = __esm({
   }
 });
 
+// dist/hooks/lib/git-remote-parser.js
+var init_git_remote_parser = __esm({
+  "dist/hooks/lib/git-remote-parser.js"() {
+    "use strict";
+  }
+});
+
+// dist/hooks/lib/git-config-reader.js
+var init_git_config_reader = __esm({
+  "dist/hooks/lib/git-config-reader.js"() {
+    "use strict";
+  }
+});
+
+// dist/hooks/generated/hook-timeouts.js
+var init_hook_timeouts = __esm({
+  "dist/hooks/generated/hook-timeouts.js"() {
+    "use strict";
+  }
+});
+
+// dist/hooks/lib/gramatr-hook-utils.js
+function resolveMcpUrl() {
+  try {
+    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs.readFileSync)(configPath, "utf8"));
+    if (config.server_url)
+      return config.server_url;
+  } catch {
+  }
+  try {
+    const gmtrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
+    const settingsPath = (0, import_path.join)(gmtrDir, "settings.json");
+    const settings = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf8"));
+    if (settings.auth?.server_url)
+      return settings.auth.server_url;
+  } catch {
+  }
+  const envUrl = getGramatrUrlFromEnv();
+  if (envUrl)
+    return envUrl;
+  return "https://api.gramatr.com/mcp";
+}
+var import_fs, import_path, HOME;
+var init_gramatr_hook_utils = __esm({
+  "dist/hooks/lib/gramatr-hook-utils.js"() {
+    "use strict";
+    import_fs = require("fs");
+    import_path = require("path");
+    init_git_remote_parser();
+    init_git_config_reader();
+    init_config_runtime();
+    init_hook_timeouts();
+    HOME = getHomeDir();
+  }
+});
+
 // ../proof-crypto/dist/index.js
 var init_dist = __esm({
   "../proof-crypto/dist/index.js"() {
@@ -141,35 +198,7 @@ init_config_runtime();
 var import_node_fs = require("node:fs");
 var import_node_path = require("node:path");
 init_config_runtime();
-
-// dist/hooks/lib/gramatr-hook-utils.js
-var import_fs = require("fs");
-var import_path = require("path");
-init_config_runtime();
-var HOME = getHomeDir();
-function resolveMcpUrl() {
-  try {
-    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs.readFileSync)(configPath, "utf8"));
-    if (config.server_url)
-      return config.server_url;
-  } catch {
-  }
-  try {
-    const gmtrDir = getGramatrDirFromEnv() || (0, import_path.join)(HOME, ".gramatr");
-    const settingsPath = (0, import_path.join)(gmtrDir, "settings.json");
-    const settings = JSON.parse((0, import_fs.readFileSync)(settingsPath, "utf8"));
-    if (settings.auth?.server_url)
-      return settings.auth.server_url;
-  } catch {
-  }
-  const envUrl = getGramatrUrlFromEnv();
-  if (envUrl)
-    return envUrl;
-  return "https://api.gramatr.com/mcp";
-}
-
-// dist/hooks/lib/bootstrap-recovery.js
+init_gramatr_hook_utils();
 init_session_rest_token();
 
 // dist/user-config.js
@@ -225,6 +254,9 @@ function resolveClientBearerToken(remoteUrl) {
     return entry.accessToken;
   return "";
 }
+
+// dist/bin/headless-login-transport.js
+init_gramatr_hook_utils();
 
 // dist/hooks/lib/mcp-transport-switch.js
 var GRAMATR_MCP_SERVER_KEY = "gramatr";
