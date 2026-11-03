@@ -428,6 +428,54 @@ ${json}
 `);
 }
 var requestId = 0;
+async function postToRemoteWithAuthRecovery(payload, sessionContext, logTag) {
+  let response = await postToRemote(payload, sessionContext);
+  if (response.status === 401) {
+    const staleSignal = {
+      httpStatus: 401,
+      wwwAuthenticate: response.headers.get("www-authenticate"),
+      // Body read consumes the stream, but on a 401 we always re-post (a fresh
+      // Response), so peeking the body here is safe.
+      bodyError: extractBodyErrorCode(await safeJson(response))
+    };
+    if (isTokenStaleSignal(staleSignal)) {
+      const renewed = await renewToken();
+      if (!renewed) {
+        throw new Error("Remote server error: HTTP 401 \u2014 token_stale; refresh grant failed (re-login required)");
+      }
+      response = await postToRemote(payload, sessionContext);
+      if (response.status === 401) {
+        const churnBody = await safeJson(response);
+        if (isTokenStaleSignal({
+          httpStatus: 401,
+          wwwAuthenticate: response.headers.get("www-authenticate"),
+          bodyError: extractBodyErrorCode(churnBody)
+        })) {
+          process.stderr.write(JSON.stringify({
+            level: "error",
+            event: "token_stale_after_refresh",
+            message: "token_stale persisted after a successful refresh \u2014 epoch churn defect",
+            tool: logTag,
+            component: "remote-client"
+          }) + "\n");
+        }
+        throw new Error("Remote server error: HTTP 401 \u2014 token_stale persisted after refresh");
+      }
+    } else {
+      const refreshed = refreshToken();
+      if (refreshed) {
+        response = await postToRemote(payload, sessionContext);
+      }
+      if (response.status === 401) {
+        const renewed = await renewToken();
+        if (renewed) {
+          response = await postToRemote(payload, sessionContext);
+        }
+      }
+    }
+  }
+  return response;
+}
 async function callRemoteTool(toolName, args, sessionContext) {
   const payload = {
     jsonrpc: "2.0",
@@ -436,51 +484,7 @@ async function callRemoteTool(toolName, args, sessionContext) {
     params: { name: toolName, arguments: args }
   };
   const attempt = async () => {
-    let response = await postToRemote(payload, sessionContext);
-    if (response.status === 401) {
-      const staleSignal = {
-        httpStatus: 401,
-        wwwAuthenticate: response.headers.get("www-authenticate"),
-        // Body read consumes the stream, but on a 401 we always re-post (a fresh
-        // Response), so peeking the body here is safe.
-        bodyError: extractBodyErrorCode(await safeJson(response))
-      };
-      if (isTokenStaleSignal(staleSignal)) {
-        const renewed = await renewToken();
-        if (!renewed) {
-          throw new Error("Remote server error: HTTP 401 \u2014 token_stale; refresh grant failed (re-login required)");
-        }
-        response = await postToRemote(payload, sessionContext);
-        if (response.status === 401) {
-          const churnBody = await safeJson(response);
-          if (isTokenStaleSignal({
-            httpStatus: 401,
-            wwwAuthenticate: response.headers.get("www-authenticate"),
-            bodyError: extractBodyErrorCode(churnBody)
-          })) {
-            process.stderr.write(JSON.stringify({
-              level: "error",
-              event: "token_stale_after_refresh",
-              message: "token_stale persisted after a successful refresh \u2014 epoch churn defect",
-              tool: toolName,
-              component: "remote-client"
-            }) + "\n");
-          }
-          throw new Error("Remote server error: HTTP 401 \u2014 token_stale persisted after refresh");
-        }
-      } else {
-        const refreshed = refreshToken();
-        if (refreshed) {
-          response = await postToRemote(payload);
-        }
-        if (response.status === 401) {
-          const renewed = await renewToken();
-          if (renewed) {
-            response = await postToRemote(payload);
-          }
-        }
-      }
-    }
+    const response = await postToRemoteWithAuthRecovery(payload, sessionContext, toolName);
     if (!response.ok) {
       if (response.status === 401) {
         const body2 = await response.json().catch(() => ({}));

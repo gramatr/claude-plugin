@@ -42,6 +42,31 @@ function getHomeDir() {
 }
 
 // dist/hooks/lib/token-stale.js
+var TOKEN_STALE_ERROR_CODE = "token_stale";
+function isTokenStaleSignal(signal) {
+  if (signal.httpStatus !== 401)
+    return false;
+  if ((signal.bodyError ?? "").toLowerCase() === TOKEN_STALE_ERROR_CODE)
+    return true;
+  const challenge = (signal.wwwAuthenticate ?? "").toLowerCase();
+  if (!challenge)
+    return false;
+  return challenge.includes(`error="${TOKEN_STALE_ERROR_CODE}"`) || challenge.includes(`error=${TOKEN_STALE_ERROR_CODE}`);
+}
+function extractEnvelopeErrorCode(response) {
+  if (typeof response !== "object" || response === null)
+    return null;
+  const err = response.error;
+  if (typeof err !== "object" || err === null)
+    return null;
+  const data = err.data;
+  if (typeof data === "object" && data !== null) {
+    const code = data.error;
+    if (typeof code === "string")
+      return code;
+  }
+  return null;
+}
 function createSingleFlight() {
   let inFlight = null;
   return (fn) => {
@@ -142,6 +167,39 @@ function refreshToken() {
   return cachedToken;
 }
 var renewSingleFlight = createSingleFlight();
+async function renewToken() {
+  return renewSingleFlight(renewTokenInner);
+}
+async function renewTokenInner() {
+  const currentToken = cachedToken ?? readConfig()?.token;
+  if (!currentToken)
+    return null;
+  try {
+    const serverUrl = getServerUrl();
+    const response = await fetch(`${serverUrl}/auth/token/renew`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${currentToken}` },
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!response.ok)
+      return null;
+    const body = await response.json();
+    if (!body.access_token)
+      return null;
+    const expiresIn = body.expires_in ?? 31536e3;
+    const newExpiresAt = new Date(Date.now() + expiresIn * 1e3).toISOString();
+    const config = readConfig() ?? {};
+    config.token = body.access_token;
+    config.token_expires_at = newExpiresAt;
+    writeConfig(config);
+    cachedToken = body.access_token;
+    cachedExpiresAt = Date.parse(newExpiresAt);
+    renewalInProgress = false;
+    return cachedToken;
+  } catch {
+    return null;
+  }
+}
 async function renewTokenBackground() {
   if (renewalInProgress || !cachedToken)
     return;
@@ -271,6 +329,23 @@ var remoteBackoffOpts = {
   isRetryable,
   getRetryAfterMs: (err) => err instanceof TransientHttpError ? err.retryAfterMs : void 0
 };
+async function safeJson(response) {
+  try {
+    if (typeof response.json !== "function")
+      return {};
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+function extractBodyErrorCode(body) {
+  if (typeof body !== "object" || body === null)
+    return null;
+  const topError = body.error;
+  if (typeof topError === "string")
+    return topError;
+  return extractEnvelopeErrorCode(body);
+}
 function debugLog(label, data) {
   if (!DEBUG)
     return;
@@ -281,6 +356,54 @@ ${json}
 `);
 }
 var requestId = 0;
+async function postToRemoteWithAuthRecovery(payload, sessionContext, logTag) {
+  let response = await postToRemote(payload, sessionContext);
+  if (response.status === 401) {
+    const staleSignal = {
+      httpStatus: 401,
+      wwwAuthenticate: response.headers.get("www-authenticate"),
+      // Body read consumes the stream, but on a 401 we always re-post (a fresh
+      // Response), so peeking the body here is safe.
+      bodyError: extractBodyErrorCode(await safeJson(response))
+    };
+    if (isTokenStaleSignal(staleSignal)) {
+      const renewed = await renewToken();
+      if (!renewed) {
+        throw new Error("Remote server error: HTTP 401 \u2014 token_stale; refresh grant failed (re-login required)");
+      }
+      response = await postToRemote(payload, sessionContext);
+      if (response.status === 401) {
+        const churnBody = await safeJson(response);
+        if (isTokenStaleSignal({
+          httpStatus: 401,
+          wwwAuthenticate: response.headers.get("www-authenticate"),
+          bodyError: extractBodyErrorCode(churnBody)
+        })) {
+          process.stderr.write(JSON.stringify({
+            level: "error",
+            event: "token_stale_after_refresh",
+            message: "token_stale persisted after a successful refresh \u2014 epoch churn defect",
+            tool: logTag,
+            component: "remote-client"
+          }) + "\n");
+        }
+        throw new Error("Remote server error: HTTP 401 \u2014 token_stale persisted after refresh");
+      }
+    } else {
+      const refreshed = refreshToken();
+      if (refreshed) {
+        response = await postToRemote(payload, sessionContext);
+      }
+      if (response.status === 401) {
+        const renewed = await renewToken();
+        if (renewed) {
+          response = await postToRemote(payload, sessionContext);
+        }
+      }
+    }
+  }
+  return response;
+}
 async function callRemoteResource(uri, sessionContext) {
   const payload = {
     jsonrpc: "2.0",
@@ -288,7 +411,7 @@ async function callRemoteResource(uri, sessionContext) {
     method: "resources/read",
     params: { uri }
   };
-  const response = await postToRemote(payload, sessionContext);
+  const response = await postToRemoteWithAuthRecovery(payload, sessionContext, uri);
   if (!response.ok) {
     throw new Error(`Failed to read remote resource: HTTP ${response.status} ${response.statusText}`);
   }
