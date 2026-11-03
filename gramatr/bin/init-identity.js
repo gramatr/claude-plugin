@@ -593,13 +593,19 @@ function isNearExpiry(expiresAt) {
     return false;
   return Date.now() >= expiresAt - RENEWAL_WINDOW_MS;
 }
-function getToken() {
+function resolveEnvOverrideToken() {
   const envKey = sanitizeEnvToken(process.env.GRAMATR_API_KEY);
   if (envKey)
     return envKey;
   const envToken = getGramatrTokenFromEnv();
   if (envToken)
     return envToken;
+  return null;
+}
+function getToken() {
+  const envOverride = resolveEnvOverrideToken();
+  if (envOverride)
+    return envOverride;
   if (cachedToken && isExpired(cachedExpiresAt)) {
     cachedToken = null;
     cachedExpiresAt = null;
@@ -639,7 +645,16 @@ async function renewToken() {
   return renewSingleFlight(renewTokenInner);
 }
 async function renewTokenInner() {
-  const currentToken = cachedToken ?? readConfig()?.token;
+  const diskConfig = readConfig();
+  const currentToken = cachedToken ?? diskConfig?.token;
+  const diskExpiresAt = diskConfig?.token_expires_at ? Date.parse(diskConfig.token_expires_at) : null;
+  const tokenFullyExpired = isExpired(cachedExpiresAt ?? diskExpiresAt);
+  const storedRefreshToken = diskConfig?.refresh_token;
+  if ((!currentToken || tokenFullyExpired) && storedRefreshToken) {
+    const renewed = await renewViaRefreshToken(storedRefreshToken);
+    if (renewed)
+      return renewed;
+  }
   if (!currentToken)
     return null;
   try {
@@ -659,6 +674,38 @@ async function renewTokenInner() {
     const config = readConfig() ?? {};
     config.token = body.access_token;
     config.token_expires_at = newExpiresAt;
+    writeConfig(config);
+    cachedToken = body.access_token;
+    cachedExpiresAt = Date.parse(newExpiresAt);
+    renewalInProgress = false;
+    return cachedToken;
+  } catch {
+    return null;
+  }
+}
+async function renewViaRefreshToken(refreshTokenValue) {
+  try {
+    const serverUrl = getServerUrl();
+    const response = await fetch(`${serverUrl}/auth/token/renew`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshTokenValue }),
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!response.ok)
+      return null;
+    const body = await response.json();
+    if (!body.access_token || typeof body.expires_in !== "number")
+      return null;
+    const newExpiresAt = new Date(Date.now() + body.expires_in * 1e3).toISOString();
+    const config = readConfig() ?? {};
+    config.token = body.access_token;
+    config.token_expires_at = newExpiresAt;
+    if (body.refresh_token) {
+      config.refresh_token = body.refresh_token;
+    } else {
+      delete config.refresh_token;
+    }
     writeConfig(config);
     cachedToken = body.access_token;
     cachedExpiresAt = Date.parse(newExpiresAt);
@@ -700,6 +747,25 @@ async function renewTokenBackground() {
   } finally {
     renewalInProgress = false;
   }
+}
+async function ensureFreshToken() {
+  const envOverride = resolveEnvOverrideToken();
+  if (envOverride)
+    return envOverride;
+  if (cachedToken && isExpired(cachedExpiresAt)) {
+    cachedToken = null;
+    cachedExpiresAt = null;
+  }
+  if (!cachedToken) {
+    refreshToken();
+  }
+  if (!cachedToken || isNearExpiry(cachedExpiresAt)) {
+    process.stderr.write("[gramatr] ensureFreshToken: proactively refreshing before a REST-only call (standalone entry point, Unit 4)\n");
+    const renewed = await renewToken();
+    if (renewed)
+      return renewed;
+  }
+  return cachedToken;
 }
 function getServerUrl() {
   const envUrl = getGramatrUrlFromEnv();
@@ -1029,7 +1095,7 @@ async function fetchRemotePrompt(name, args) {
 }
 async function fetchCurrentUser() {
   const serverUrl = getServerUrl();
-  const token = getToken();
+  const token = await ensureFreshToken();
   if (!token)
     return null;
   const baseUrl = serverUrl.replace(/\/mcp\/?$/, "");
