@@ -547,9 +547,11 @@ async function fetchRemoteClassificationSnapshot(clientSessionId) {
     const intent = typeof parsed.intent === "string" ? parsed.intent : null;
     const confidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
     const createdAt = typeof parsed.created_at === "number" ? parsed.created_at : null;
-    return { effort, intent, confidence, created_at: createdAt, fetchError: false };
-  } catch {
-    return { effort: null, intent: null, confidence: null, created_at: null, fetchError: true };
+    return { effort, intent, confidence, created_at: createdAt, fetchError: false, authError: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const authError = message.includes("HTTP 401");
+    return { effort: null, intent: null, confidence: null, created_at: null, fetchError: true, authError };
   }
 }
 

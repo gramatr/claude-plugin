@@ -631,9 +631,11 @@ async function fetchRemoteClassificationSnapshot(clientSessionId) {
     const intent = typeof parsed.intent === "string" ? parsed.intent : null;
     const confidence = typeof parsed.confidence === "number" ? parsed.confidence : null;
     const createdAt = typeof parsed.created_at === "number" ? parsed.created_at : null;
-    return { effort, intent, confidence, created_at: createdAt, fetchError: false };
-  } catch {
-    return { effort: null, intent: null, confidence: null, created_at: null, fetchError: true };
+    return { effort, intent, confidence, created_at: createdAt, fetchError: false, authError: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const authError = message.includes("HTTP 401");
+    return { effort: null, intent: null, confidence: null, created_at: null, fetchError: true, authError };
   }
 }
 
@@ -675,6 +677,26 @@ function isGenuineUserTurnBoundary(entry) {
   if (!Array.isArray(content))
     return true;
   return !content.every((block) => block?.type === "tool_result");
+}
+function getLastTurnOrigin(transcriptPath) {
+  try {
+    const content = (0, import_node_fs3.readFileSync)(transcriptPath, "utf8");
+    const lines = content.trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line || !line.trim())
+        continue;
+      try {
+        const entry = JSON.parse(line);
+        if (isGenuineUserTurnBoundary(entry)) {
+          return typeof entry.turnOrigin === "string" ? entry.turnOrigin : null;
+        }
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return null;
 }
 function extractLastTurnToolCalls(transcriptPath) {
   const out = /* @__PURE__ */ new Set();
@@ -790,9 +812,10 @@ var HARD_GATE_EFFORT_LEVELS = /* @__PURE__ */ new Set([
   "deep",
   "comprehensive"
 ]);
+var CLASSIFICATION_FEEDBACK_GATE_ID = "classification_feedback";
 var BLOCKABLE_GATES = [
   {
-    id: "classification_feedback",
+    id: CLASSIFICATION_FEEDBACK_GATE_ID,
     tool: "classification_feedback",
     remediation: "Call mcp__plugin_gramatr_gramatr__classification_feedback with the original prompt verbatim (was_correct + original_prompt at minimum), then finish.",
     appliesTo: (effort) => effort !== null && HARD_GATE_EFFORT_LEVELS.has(effort)
@@ -1213,9 +1236,15 @@ async function runTurnExitGateHook(input) {
     }
     const classificationSnapshot = await fetchRemoteClassificationSnapshot(stateKey);
     const effort = classificationSnapshot?.effort ?? null;
+    const turnOrigin = getLastTurnOrigin(transcriptPath);
+    const turnHasNoRealPrompt = turnOrigin !== null && turnOrigin !== "human";
     const effortUnknownDueToError = classificationSnapshot?.fetchError === true;
-    if (effortUnknownDueToError) {
-      process.stderr.write("[gramatr] turn-exit-gate: classification snapshot fetch failed, failing closed (gramatr/gramatr#7244)\n");
+    if (effortUnknownDueToError && !turnHasNoRealPrompt) {
+      if (classificationSnapshot?.authError === true) {
+        process.stderr.write("[gramatr] turn-exit-gate: not authenticated \u2014 call gramatr_authenticate (or /gramatr:authenticate) to reconnect, then finish this turn (gramatr/gramatr#7303)\n");
+      } else {
+        process.stderr.write("[gramatr] turn-exit-gate: classification snapshot fetch failed, failing closed (gramatr/gramatr#7244)\n");
+      }
     }
     const remote = await fetchRemotePacketSnapshot(stateKey);
     let requiredActions;
@@ -1240,10 +1269,22 @@ async function runTurnExitGateHook(input) {
       // real payloads have been observed via the now-populated packet-cache
       // store (hooks/lib/packet-cache.ts, #6979 final unit) to let this gate
       // actually block. The key itself is OMITTED
-      // (not set to `gateIds: undefined`) when the flag is on, so this
-      // matches #6973's original "no gateIds filter" shape exactly rather
-      // than an object carrying an explicit-undefined key.
-      ...isRequiredActionsGateEnabled() ? {} : { gateIds: ALL_GATE_IDS.filter((id) => id !== REQUIRED_ACTIONS_GATE_ID) },
+      // (not set to `gateIds: undefined`) when nothing needs excluding, so
+      // this matches #6973's original "no gateIds filter" shape exactly
+      // rather than an object carrying an explicit-undefined key.
+      //
+      // #7304 — classification_feedback joins required_actions' exclusion
+      // list specifically when turnHasNoRealPrompt: unlike required_actions'
+      // dark-launch reason, this exclusion is permanent for turns that meet
+      // the condition, not a temporary rollout flag.
+      ...(() => {
+        const excluded = [];
+        if (!isRequiredActionsGateEnabled())
+          excluded.push(REQUIRED_ACTIONS_GATE_ID);
+        if (turnHasNoRealPrompt)
+          excluded.push(CLASSIFICATION_FEEDBACK_GATE_ID);
+        return excluded.length > 0 ? { gateIds: ALL_GATE_IDS.filter((id) => !excluded.includes(id)) } : {};
+      })(),
       effortUnknownDueToError
     });
     if (verdict.block && verdict.stderr) {
