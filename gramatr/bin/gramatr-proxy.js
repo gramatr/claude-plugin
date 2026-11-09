@@ -3026,8 +3026,8 @@ function getProcessPin(options = {}) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.44.4") {
-      return "0.44.4";
+    if ("0.44.5") {
+      return "0.44.5";
     }
   } catch {
   }
@@ -3620,7 +3620,7 @@ async function handleMessage(msg) {
     if (params.name === "session_start") {
       const startArgs = params.arguments ?? {};
       const startCwd = typeof startArgs.cwd === "string" ? startArgs.cwd : void 0;
-      const { response: response2, httpStatus: httpStatus2 } = await forwardToRemote(msg);
+      const { response: response2, httpStatus: httpStatus2 } = await forwardWithLadder(msg);
       process.stderr.write(`gr\u0101matr-proxy: tools/call session_start \u2192 HTTP ${httpStatus2}
 `);
       try {
