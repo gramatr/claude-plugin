@@ -815,26 +815,11 @@ function readProjectState(projectDir) {
     statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
   };
 }
-var GRAMATR_SESSIONS_SUBDIR = "sessions";
 function activeSessionKeyFileName(clientSessionId, ext = "json") {
   const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
   if (!safe || safe === "." || safe === "..")
     return null;
   return `${safe}.${ext}`;
-}
-function activeSessionKeyPath(projectDir, clientSessionId) {
-  const name = activeSessionKeyFileName(clientSessionId);
-  if (!name)
-    return null;
-  return (0, import_node_path3.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
-}
-function readActiveSessionForKey(projectDir, clientSessionId) {
-  if (!clientSessionId)
-    return null;
-  const path = activeSessionKeyPath(projectDir, clientSessionId);
-  if (!path)
-    return null;
-  return readJson(path);
 }
 
 // dist/hooks/lib/classification-cache.js
@@ -1166,8 +1151,7 @@ function readCommittedProjectId(dir) {
 // dist/hooks/lib/feedback.js
 function resolveClientSessionId(projectDir) {
   try {
-    const ownPinValue = getProcessPin()?.value;
-    return (ownPinValue && readActiveSessionForKey(projectDir, ownPinValue) ? ownPinValue : readProjectState(projectDir)?.active_session?.client_session_id) || void 0;
+    return getProcessPin()?.value ?? readProjectState(projectDir)?.active_session?.client_session_id ?? void 0;
   } catch {
     return void 0;
   }

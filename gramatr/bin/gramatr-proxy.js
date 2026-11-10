@@ -681,7 +681,13 @@ var init_dpop_key = __esm({
 });
 
 // dist/hooks/lib/session-rest-token.js
-function getSessionTokenPath(projectDir) {
+function sanitizeClientSessionIdForFilename(clientSessionId) {
+  return clientSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+function getSessionTokenPath(projectDir, clientSessionId) {
+  if (clientSessionId) {
+    return (0, import_node_path4.join)(projectDir, GRAMATR_DIR2, SESSION_TOKEN_SIDECAR_DIR, `${sanitizeClientSessionIdForFilename(clientSessionId)}.session`);
+  }
   return (0, import_node_path4.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
@@ -700,8 +706,8 @@ function normalizeRestTokenBlock(block) {
   }
   return null;
 }
-function readSessionToken(projectDir) {
-  const dest = getSessionTokenPath(projectDir);
+function readSessionToken(projectDir, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
   try {
     if (!(0, import_node_fs4.existsSync)(dest))
       return null;
@@ -723,7 +729,7 @@ function apiV1Base(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return `${trimmed}/api/v1`;
 }
-var import_node_fs4, import_node_path4, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS;
+var import_node_fs4, import_node_path4, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_SIDECAR_DIR;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
@@ -733,6 +739,7 @@ var init_session_rest_token = __esm({
     GRAMATR_DIR2 = ".gramatr";
     SESSION_FILE = ".session";
     SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
+    SESSION_TOKEN_SIDECAR_DIR = "sessions";
   }
 });
 
@@ -3026,8 +3033,8 @@ function getProcessPin(options = {}) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.44.7") {
-      return "0.44.7";
+    if ("0.44.8") {
+      return "0.44.8";
     }
   } catch {
   }
@@ -3335,7 +3342,7 @@ async function performColdStartMigrationCheck() {
   if (isProxyTokenCurrentlyLive())
     return;
   const bootstrapProjectDir = resolveProjectDir({ cwd: process.cwd(), clientType: "claude-code" });
-  const sessionFile = readSessionToken(bootstrapProjectDir);
+  const sessionFile = readSessionToken(bootstrapProjectDir, getProcessPin()?.value);
   if (!sessionFile || !isSessionTokenValid(sessionFile))
     return;
   try {

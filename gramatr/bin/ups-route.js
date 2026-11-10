@@ -2483,7 +2483,7 @@ function resolveProjectIdForMint(projectDir) {
     return null;
   }
 }
-async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken) {
+async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken, clientSessionId) {
   const projectId = resolveProjectIdForMint(projectDir);
   if (!projectId) {
     return { status: "no_credential" };
@@ -2492,7 +2492,7 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     return { status: "no_credential" };
   }
   return withMintLock(projectDir, async () => {
-    const current = readSessionToken(projectDir);
+    const current = readSessionToken(projectDir, clientSessionId);
     if (isSessionTokenValid(current, now2) && (!knownBadToken || current?.token !== knownBadToken)) {
       return { status: "minted", file: current };
     }
@@ -2539,14 +2539,14 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     } catch {
       return { status: "error" };
     }
-    const wrote = persistBootstrapRestToken(projectDir, body.rest_token);
+    const wrote = persistBootstrapRestToken(projectDir, body.rest_token, clientSessionId);
     if (!wrote) {
       return { status: "error" };
     }
     const rotated = normalizeRotatedCredential(body.mint_credential);
     if (rotated)
       writeMintCredential(rotated, projectId);
-    const file = readSessionToken(projectDir);
+    const file = readSessionToken(projectDir, clientSessionId);
     if (!file)
       return { status: "error" };
     return { status: "minted", file };
@@ -3100,7 +3100,13 @@ var init_gramatr_hook_utils = __esm({
 });
 
 // dist/hooks/lib/session-rest-token.js
-function getSessionTokenPath(projectDir) {
+function sanitizeClientSessionIdForFilename(clientSessionId) {
+  return clientSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+function getSessionTokenPath(projectDir, clientSessionId) {
+  if (clientSessionId) {
+    return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SESSION_TOKEN_SIDECAR_DIR, `${sanitizeClientSessionIdForFilename(clientSessionId)}.session`);
+  }
   return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
@@ -3119,13 +3125,13 @@ function normalizeRestTokenBlock(block) {
   }
   return null;
 }
-function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
+function writeSessionToken(projectDir, file, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
+  const dir = (0, import_node_path5.dirname)(dest);
   if (!(0, import_node_fs5.existsSync)(dir)) {
     (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
-  const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
   (0, import_node_fs5.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
   (0, import_node_fs5.renameSync)(tmp, dest);
@@ -3134,15 +3140,15 @@ function writeSessionToken(projectDir, file) {
   } catch {
   }
 }
-function persistBootstrapRestToken(projectDir, block) {
+function persistBootstrapRestToken(projectDir, block, clientSessionId) {
   const file = normalizeRestTokenBlock(block);
   if (!file)
     return false;
-  writeSessionToken(projectDir, file);
+  writeSessionToken(projectDir, file, clientSessionId);
   return true;
 }
-function readSessionToken(projectDir) {
-  const dest = getSessionTokenPath(projectDir);
+function readSessionToken(projectDir, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
   try {
     if (!(0, import_node_fs5.existsSync)(dest))
       return null;
@@ -3178,9 +3184,9 @@ function shouldProactivelyRenew(file, now2 = Date.now()) {
   const elapsed = now2 - start;
   return elapsed >= lifetime * SESSION_TOKEN_PROACTIVE_RENEW_FRACTION;
 }
-function deleteSessionToken(projectDir) {
+function deleteSessionToken(projectDir, clientSessionId) {
   try {
-    (0, import_node_fs5.rmSync)(getSessionTokenPath(projectDir), { force: true });
+    (0, import_node_fs5.rmSync)(getSessionTokenPath(projectDir, clientSessionId), { force: true });
   } catch {
   }
 }
@@ -3198,7 +3204,7 @@ function apiV1Base(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return `${trimmed}/api/v1`;
 }
-async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
+async function renewSessionToken(projectDir, file, fetchImpl = fetch, clientSessionId) {
   const url = `${apiV1Base(file.base_url)}/session/token/renew`;
   let res;
   try {
@@ -3247,40 +3253,40 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
   if (!fresh) {
     return { status: "error" };
   }
-  writeSessionToken(projectDir, fresh);
+  writeSessionToken(projectDir, fresh, clientSessionId);
   return { status: "renewed", file: fresh };
 }
-async function attemptRung3Mint(projectDir, file, fetchImpl, now2) {
+async function attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId) {
   const { mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 } = await Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports));
-  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token);
+  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token, clientSessionId);
 }
-async function handleRenewDenied(projectDir, file, fetchImpl, now2) {
-  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
+async function handleRenewDenied(projectDir, file, fetchImpl, now2, clientSessionId) {
+  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId);
   if (minted.status === "minted")
     return minted.file;
-  deleteSessionToken(projectDir);
+  deleteSessionToken(projectDir, clientSessionId);
   return null;
 }
-async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2) {
+async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2, clientSessionId) {
   const [{ mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 }, { resolveMcpUrl: resolveMcpUrl2 }] = await Promise.all([
     Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports)),
     Promise.resolve().then(() => (init_gramatr_hook_utils(), gramatr_hook_utils_exports))
   ]);
   const baseUrl = resolveMcpUrl2().replace(/\/mcp\/?$/, "");
-  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2);
+  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2, void 0, clientSessionId);
   return outcome.status === "minted" ? outcome.file : null;
 }
-async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now()) {
-  const file = readSessionToken(projectDir);
+async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now(), clientSessionId) {
+  const file = readSessionToken(projectDir, clientSessionId);
   if (!file)
-    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2);
+    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2, clientSessionId);
   if (isSessionTokenValid(file, now2)) {
     if (shouldProactivelyRenew(file, now2)) {
-      const outcome2 = await renewSessionToken(projectDir, file, fetchImpl);
+      const outcome2 = await renewSessionToken(projectDir, file, fetchImpl, clientSessionId);
       if (outcome2.status === "renewed")
         return outcome2.file;
       if (outcome2.status === "denied") {
-        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
+        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId);
         if (minted.status === "minted")
           return minted.file;
       }
@@ -3288,14 +3294,14 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = D
     }
     return file;
   }
-  const outcome = await renewSessionToken(projectDir, file, fetchImpl);
+  const outcome = await renewSessionToken(projectDir, file, fetchImpl, clientSessionId);
   if (outcome.status === "renewed")
     return outcome.file;
   if (outcome.status === "denied")
-    return handleRenewDenied(projectDir, file, fetchImpl, now2);
+    return handleRenewDenied(projectDir, file, fetchImpl, now2, clientSessionId);
   return file;
 }
-var import_node_fs5, import_node_path5, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS;
+var import_node_fs5, import_node_path5, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS, SESSION_TOKEN_SIDECAR_DIR;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
@@ -3307,6 +3313,7 @@ var init_session_rest_token = __esm({
     SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
     SESSION_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
     RENEW_TIMEOUT_MS = 3e3;
+    SESSION_TOKEN_SIDECAR_DIR = "sessions";
   }
 });
 
@@ -3722,7 +3729,7 @@ function persistBootstrapPayload(raw, opts) {
     deviceKeyBackend: null
   };
   try {
-    result.restTokenWritten = persistBootstrapRestToken(opts.projectDir, raw.rest_token);
+    result.restTokenWritten = persistBootstrapRestToken(opts.projectDir, raw.rest_token, opts.clientSessionId);
   } catch {
   }
   try {
@@ -3948,18 +3955,20 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl, timeoutMs = RE
   }
   const persisted = persistBootstrapPayload(parsed, {
     projectDir: opts.projectDir,
-    homeDir: getHomeDir()
+    homeDir: getHomeDir(),
+    // #7319 — scope the written `.session` to THIS process's own pin.
+    clientSessionId: opts.clientSessionId
   });
   if (!persisted.restTokenWritten)
     return { status: "error" };
-  const file = readSessionToken(opts.projectDir);
+  const file = readSessionToken(opts.projectDir, opts.clientSessionId);
   if (!file)
     return { status: "error" };
   return { status: "recovered", file };
 }
 async function recoverSessionToken(opts) {
   return withRecoveryLock(opts.projectDir, async () => {
-    const existing = readSessionToken(opts.projectDir);
+    const existing = readSessionToken(opts.projectDir, opts.clientSessionId);
     if (isSessionTokenValid(existing)) {
       return { status: "recovered", file: existing };
     }
@@ -4698,7 +4707,9 @@ function degradedSurfaceWarning(remoteUrl, now2 = Date.now(), scriptPath = proce
   return loudRecoveryFailureWarning(reason, outcomeStatus);
 }
 async function selfHealSessionToken(input, projectDir, fetchImpl) {
-  const clientSessionId = typeof input.session_id === "string" ? input.session_id : null;
+  const ownPinValue = getProcessPin()?.value;
+  const rawSessionId = typeof input.session_id === "string" ? input.session_id : null;
+  const clientSessionId = ownPinValue ?? rawSessionId;
   const outcome = await recoverSessionToken({
     projectDir,
     clientSessionId,
@@ -4707,7 +4718,7 @@ async function selfHealSessionToken(input, projectDir, fetchImpl) {
   try {
     const { recordBootstrapRecovered: recordBootstrapRecovered2 } = await Promise.resolve().then(() => (init_hook_promotion_telemetry(), hook_promotion_telemetry_exports));
     recordBootstrapRecovered2({
-      session_id: clientSessionId,
+      session_id: rawSessionId,
       client_type: "claude-code",
       result: outcome.status
     });
@@ -4769,7 +4780,7 @@ async function enforceProjectPinMatch(input, projectDir, token, fetchImpl) {
     token_project_id: tokenProjectId,
     outcome: "detected"
   });
-  const minted = await mintSessionRestTokenFromKeyring(projectDir, token.base_url, fetchImpl, Date.now(), token.token);
+  const minted = await mintSessionRestTokenFromKeyring(projectDir, token.base_url, fetchImpl, Date.now(), token.token, getProcessPin()?.value);
   if (minted.status === "minted" && projectIdFromAud(minted.file.aud) === pinnedProjectId) {
     recordProjectPinMismatch({
       session_id: sessionId,
@@ -4795,11 +4806,12 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
     return {};
   const projectDir = projectDirOverride ?? resolveUpsRouteProjectDir(input);
   const remoteUrl = resolveMcpUrl();
-  let token = await resolveUsableSessionToken(projectDir, fetchImpl);
+  const ownPinValue = getProcessPin()?.value;
+  let token = await resolveUsableSessionToken(projectDir, fetchImpl, Date.now(), ownPinValue);
   let selfHealedThisTurn = false;
   if (!token) {
     const restBase = remoteUrl.replace(/\/mcp$/, "");
-    const minted = await mintSessionRestTokenFromKeyring(projectDir, restBase, fetchImpl);
+    const minted = await mintSessionRestTokenFromKeyring(projectDir, restBase, fetchImpl, Date.now(), void 0, ownPinValue);
     if (minted.status === "minted") {
       token = minted.file;
     } else {
@@ -4890,7 +4902,7 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
   };
   let attempt = await attemptRoute(token);
   if (attempt.kind === "token_rejected") {
-    const minted = await mintSessionRestTokenFromKeyring(projectDir, token.base_url, fetchImpl, Date.now(), token.token);
+    const minted = await mintSessionRestTokenFromKeyring(projectDir, token.base_url, fetchImpl, Date.now(), token.token, ownPinValue);
     let refreshed;
     if (minted.status === "minted") {
       refreshed = minted.file;
@@ -4954,7 +4966,7 @@ async function reconcileServerVersion(input, projectDir, route, fetchImpl, curre
     return;
   const lastSeen = readLastSeenServerVersion(projectDir);
   if (isServerVersionChange(lastSeen, observed)) {
-    const minted = await mintSessionRestTokenFromKeyring(projectDir, currentToken.base_url, fetchImpl, Date.now(), currentToken.token);
+    const minted = await mintSessionRestTokenFromKeyring(projectDir, currentToken.base_url, fetchImpl, Date.now(), currentToken.token, getProcessPin()?.value);
     if (minted.status !== "minted") {
       await selfHealSessionToken(input, projectDir, fetchImpl);
     }

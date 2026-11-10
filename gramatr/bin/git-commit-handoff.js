@@ -545,27 +545,7 @@ function readProjectState(projectDir) {
     statusline_cache: runtime.statusline_cache ?? legacy.statusline_cache
   };
 }
-function activeSessionKeyFileName(clientSessionId, ext = "json") {
-  const safe = clientSessionId.replace(/[^A-Za-z0-9._-]/g, "");
-  if (!safe || safe === "." || safe === "..")
-    return null;
-  return `${safe}.${ext}`;
-}
-function activeSessionKeyPath(projectDir, clientSessionId) {
-  const name = activeSessionKeyFileName(clientSessionId);
-  if (!name)
-    return null;
-  return (0, import_node_path2.join)(projectDir, GRAMATR_DIR, GRAMATR_SESSIONS_SUBDIR, name);
-}
-function readActiveSessionForKey(projectDir, clientSessionId) {
-  if (!clientSessionId)
-    return null;
-  const path2 = activeSessionKeyPath(projectDir, clientSessionId);
-  if (!path2)
-    return null;
-  return readJson(path2);
-}
-var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
+var import_node_child_process2, import_node_fs2, import_node_path2, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -587,7 +567,6 @@ var init_project_state = __esm({
     CORE_FILE = "project.json";
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
-    GRAMATR_SESSIONS_SUBDIR = "sessions";
   }
 });
 
@@ -2467,7 +2446,7 @@ function resolveProjectIdForMint(projectDir) {
     return null;
   }
 }
-async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken) {
+async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken, clientSessionId) {
   const projectId = resolveProjectIdForMint(projectDir);
   if (!projectId) {
     return { status: "no_credential" };
@@ -2476,7 +2455,7 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     return { status: "no_credential" };
   }
   return withMintLock(projectDir, async () => {
-    const current = readSessionToken(projectDir);
+    const current = readSessionToken(projectDir, clientSessionId);
     if (isSessionTokenValid(current, now2) && (!knownBadToken || current?.token !== knownBadToken)) {
       return { status: "minted", file: current };
     }
@@ -2523,14 +2502,14 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     } catch {
       return { status: "error" };
     }
-    const wrote = persistBootstrapRestToken(projectDir, body.rest_token);
+    const wrote = persistBootstrapRestToken(projectDir, body.rest_token, clientSessionId);
     if (!wrote) {
       return { status: "error" };
     }
     const rotated = normalizeRotatedCredential(body.mint_credential);
     if (rotated)
       writeMintCredential(rotated, projectId);
-    const file = readSessionToken(projectDir);
+    const file = readSessionToken(projectDir, clientSessionId);
     if (!file)
       return { status: "error" };
     return { status: "minted", file };
@@ -3084,7 +3063,13 @@ var init_gramatr_hook_utils = __esm({
 });
 
 // dist/hooks/lib/session-rest-token.js
-function getSessionTokenPath(projectDir) {
+function sanitizeClientSessionIdForFilename(clientSessionId) {
+  return clientSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+function getSessionTokenPath(projectDir, clientSessionId) {
+  if (clientSessionId) {
+    return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SESSION_TOKEN_SIDECAR_DIR, `${sanitizeClientSessionIdForFilename(clientSessionId)}.session`);
+  }
   return (0, import_node_path5.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
@@ -3103,13 +3088,13 @@ function normalizeRestTokenBlock(block) {
   }
   return null;
 }
-function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path5.join)(projectDir, GRAMATR_DIR2);
+function writeSessionToken(projectDir, file, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
+  const dir = (0, import_node_path5.dirname)(dest);
   if (!(0, import_node_fs5.existsSync)(dir)) {
     (0, import_node_fs5.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
-  const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
   (0, import_node_fs5.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
   (0, import_node_fs5.renameSync)(tmp, dest);
@@ -3118,15 +3103,15 @@ function writeSessionToken(projectDir, file) {
   } catch {
   }
 }
-function persistBootstrapRestToken(projectDir, block) {
+function persistBootstrapRestToken(projectDir, block, clientSessionId) {
   const file = normalizeRestTokenBlock(block);
   if (!file)
     return false;
-  writeSessionToken(projectDir, file);
+  writeSessionToken(projectDir, file, clientSessionId);
   return true;
 }
-function readSessionToken(projectDir) {
-  const dest = getSessionTokenPath(projectDir);
+function readSessionToken(projectDir, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
   try {
     if (!(0, import_node_fs5.existsSync)(dest))
       return null;
@@ -3162,9 +3147,9 @@ function shouldProactivelyRenew(file, now2 = Date.now()) {
   const elapsed = now2 - start;
   return elapsed >= lifetime * SESSION_TOKEN_PROACTIVE_RENEW_FRACTION;
 }
-function deleteSessionToken(projectDir) {
+function deleteSessionToken(projectDir, clientSessionId) {
   try {
-    (0, import_node_fs5.rmSync)(getSessionTokenPath(projectDir), { force: true });
+    (0, import_node_fs5.rmSync)(getSessionTokenPath(projectDir, clientSessionId), { force: true });
   } catch {
   }
 }
@@ -3182,7 +3167,7 @@ function apiV1Base(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return `${trimmed}/api/v1`;
 }
-async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
+async function renewSessionToken(projectDir, file, fetchImpl = fetch, clientSessionId) {
   const url = `${apiV1Base(file.base_url)}/session/token/renew`;
   let res;
   try {
@@ -3231,40 +3216,40 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
   if (!fresh) {
     return { status: "error" };
   }
-  writeSessionToken(projectDir, fresh);
+  writeSessionToken(projectDir, fresh, clientSessionId);
   return { status: "renewed", file: fresh };
 }
-async function attemptRung3Mint(projectDir, file, fetchImpl, now2) {
+async function attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId) {
   const { mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 } = await Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports));
-  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token);
+  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token, clientSessionId);
 }
-async function handleRenewDenied(projectDir, file, fetchImpl, now2) {
-  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
+async function handleRenewDenied(projectDir, file, fetchImpl, now2, clientSessionId) {
+  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId);
   if (minted.status === "minted")
     return minted.file;
-  deleteSessionToken(projectDir);
+  deleteSessionToken(projectDir, clientSessionId);
   return null;
 }
-async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2) {
+async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2, clientSessionId) {
   const [{ mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 }, { resolveMcpUrl: resolveMcpUrl2 }] = await Promise.all([
     Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports)),
     Promise.resolve().then(() => (init_gramatr_hook_utils(), gramatr_hook_utils_exports))
   ]);
   const baseUrl = resolveMcpUrl2().replace(/\/mcp\/?$/, "");
-  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2);
+  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2, void 0, clientSessionId);
   return outcome.status === "minted" ? outcome.file : null;
 }
-async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now()) {
-  const file = readSessionToken(projectDir);
+async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now(), clientSessionId) {
+  const file = readSessionToken(projectDir, clientSessionId);
   if (!file)
-    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2);
+    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2, clientSessionId);
   if (isSessionTokenValid(file, now2)) {
     if (shouldProactivelyRenew(file, now2)) {
-      const outcome2 = await renewSessionToken(projectDir, file, fetchImpl);
+      const outcome2 = await renewSessionToken(projectDir, file, fetchImpl, clientSessionId);
       if (outcome2.status === "renewed")
         return outcome2.file;
       if (outcome2.status === "denied") {
-        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
+        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId);
         if (minted.status === "minted")
           return minted.file;
       }
@@ -3272,14 +3257,14 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = D
     }
     return file;
   }
-  const outcome = await renewSessionToken(projectDir, file, fetchImpl);
+  const outcome = await renewSessionToken(projectDir, file, fetchImpl, clientSessionId);
   if (outcome.status === "renewed")
     return outcome.file;
   if (outcome.status === "denied")
-    return handleRenewDenied(projectDir, file, fetchImpl, now2);
+    return handleRenewDenied(projectDir, file, fetchImpl, now2, clientSessionId);
   return file;
 }
-var import_node_fs5, import_node_path5, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS;
+var import_node_fs5, import_node_path5, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS, SESSION_TOKEN_SIDECAR_DIR;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
@@ -3291,6 +3276,7 @@ var init_session_rest_token = __esm({
     SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
     SESSION_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
     RENEW_TIMEOUT_MS = 3e3;
+    SESSION_TOKEN_SIDECAR_DIR = "sessions";
   }
 });
 
@@ -3654,15 +3640,15 @@ async function runGitCommitHandoff(input, fetchImpl = fetch, projectDir) {
     if (!isSuccessfulCommit(input.tool_response))
       return { status: "skipped" };
     const dir = projectDir ?? resolveSessionRoot({ sessionId: input.session_id, clientType: "claude-code" });
-    const token = await resolveUsableSessionToken(dir, fetchImpl);
-    if (!token)
-      return { status: "no_token" };
     let clientSessionId;
     try {
       const ownPinValue = getProcessPin({ agentId: input.agent_id })?.value;
-      clientSessionId = ownPinValue && readActiveSessionForKey(dir, ownPinValue) ? ownPinValue : readProjectState(dir)?.active_session?.client_session_id;
+      clientSessionId = ownPinValue ?? readProjectState(dir)?.active_session?.client_session_id;
     } catch {
     }
+    const token = await resolveUsableSessionToken(dir, fetchImpl, Date.now(), clientSessionId);
+    if (!token)
+      return { status: "no_token" };
     const url = `${apiV1Base(token.base_url)}/auto-save-handoff`;
     await fetchImpl(url, {
       method: "POST",

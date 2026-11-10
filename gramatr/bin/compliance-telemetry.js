@@ -2457,7 +2457,7 @@ function resolveProjectIdForMint(projectDir) {
     return null;
   }
 }
-async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken) {
+async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = fetch, now2 = Date.now(), knownBadToken, clientSessionId) {
   const projectId = resolveProjectIdForMint(projectDir);
   if (!projectId) {
     return { status: "no_credential" };
@@ -2466,7 +2466,7 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     return { status: "no_credential" };
   }
   return withMintLock(projectDir, async () => {
-    const current = readSessionToken(projectDir);
+    const current = readSessionToken(projectDir, clientSessionId);
     if (isSessionTokenValid(current, now2) && (!knownBadToken || current?.token !== knownBadToken)) {
       return { status: "minted", file: current };
     }
@@ -2513,14 +2513,14 @@ async function mintSessionRestTokenFromKeyring(projectDir, baseUrl, fetchImpl = 
     } catch {
       return { status: "error" };
     }
-    const wrote = persistBootstrapRestToken(projectDir, body.rest_token);
+    const wrote = persistBootstrapRestToken(projectDir, body.rest_token, clientSessionId);
     if (!wrote) {
       return { status: "error" };
     }
     const rotated = normalizeRotatedCredential(body.mint_credential);
     if (rotated)
       writeMintCredential(rotated, projectId);
-    const file = readSessionToken(projectDir);
+    const file = readSessionToken(projectDir, clientSessionId);
     if (!file)
       return { status: "error" };
     return { status: "minted", file };
@@ -3064,7 +3064,13 @@ var init_gramatr_hook_utils = __esm({
 });
 
 // dist/hooks/lib/session-rest-token.js
-function getSessionTokenPath(projectDir) {
+function sanitizeClientSessionIdForFilename(clientSessionId) {
+  return clientSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+function getSessionTokenPath(projectDir, clientSessionId) {
+  if (clientSessionId) {
+    return (0, import_node_path6.join)(projectDir, GRAMATR_DIR2, SESSION_TOKEN_SIDECAR_DIR, `${sanitizeClientSessionIdForFilename(clientSessionId)}.session`);
+  }
   return (0, import_node_path6.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
@@ -3083,13 +3089,13 @@ function normalizeRestTokenBlock(block) {
   }
   return null;
 }
-function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path6.join)(projectDir, GRAMATR_DIR2);
+function writeSessionToken(projectDir, file, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
+  const dir = (0, import_node_path6.dirname)(dest);
   if (!(0, import_node_fs7.existsSync)(dir)) {
     (0, import_node_fs7.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
-  const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
   (0, import_node_fs7.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
   (0, import_node_fs7.renameSync)(tmp, dest);
@@ -3098,15 +3104,15 @@ function writeSessionToken(projectDir, file) {
   } catch {
   }
 }
-function persistBootstrapRestToken(projectDir, block) {
+function persistBootstrapRestToken(projectDir, block, clientSessionId) {
   const file = normalizeRestTokenBlock(block);
   if (!file)
     return false;
-  writeSessionToken(projectDir, file);
+  writeSessionToken(projectDir, file, clientSessionId);
   return true;
 }
-function readSessionToken(projectDir) {
-  const dest = getSessionTokenPath(projectDir);
+function readSessionToken(projectDir, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
   try {
     if (!(0, import_node_fs7.existsSync)(dest))
       return null;
@@ -3142,9 +3148,9 @@ function shouldProactivelyRenew(file, now2 = Date.now()) {
   const elapsed = now2 - start;
   return elapsed >= lifetime * SESSION_TOKEN_PROACTIVE_RENEW_FRACTION;
 }
-function deleteSessionToken(projectDir) {
+function deleteSessionToken(projectDir, clientSessionId) {
   try {
-    (0, import_node_fs7.rmSync)(getSessionTokenPath(projectDir), { force: true });
+    (0, import_node_fs7.rmSync)(getSessionTokenPath(projectDir, clientSessionId), { force: true });
   } catch {
   }
 }
@@ -3162,7 +3168,7 @@ function apiV1Base(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return `${trimmed}/api/v1`;
 }
-async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
+async function renewSessionToken(projectDir, file, fetchImpl = fetch, clientSessionId) {
   const url = `${apiV1Base(file.base_url)}/session/token/renew`;
   let res;
   try {
@@ -3211,40 +3217,40 @@ async function renewSessionToken(projectDir, file, fetchImpl = fetch) {
   if (!fresh) {
     return { status: "error" };
   }
-  writeSessionToken(projectDir, fresh);
+  writeSessionToken(projectDir, fresh, clientSessionId);
   return { status: "renewed", file: fresh };
 }
-async function attemptRung3Mint(projectDir, file, fetchImpl, now2) {
+async function attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId) {
   const { mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 } = await Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports));
-  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token);
+  return mintSessionRestTokenFromKeyring2(projectDir, file.base_url, fetchImpl, now2, file.token, clientSessionId);
 }
-async function handleRenewDenied(projectDir, file, fetchImpl, now2) {
-  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
+async function handleRenewDenied(projectDir, file, fetchImpl, now2, clientSessionId) {
+  const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId);
   if (minted.status === "minted")
     return minted.file;
-  deleteSessionToken(projectDir);
+  deleteSessionToken(projectDir, clientSessionId);
   return null;
 }
-async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2) {
+async function attemptColdStartRung3Mint(projectDir, fetchImpl, now2, clientSessionId) {
   const [{ mintSessionRestTokenFromKeyring: mintSessionRestTokenFromKeyring2 }, { resolveMcpUrl: resolveMcpUrl2 }] = await Promise.all([
     Promise.resolve().then(() => (init_mint_session_token(), mint_session_token_exports)),
     Promise.resolve().then(() => (init_gramatr_hook_utils(), gramatr_hook_utils_exports))
   ]);
   const baseUrl = resolveMcpUrl2().replace(/\/mcp\/?$/, "");
-  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2);
+  const outcome = await mintSessionRestTokenFromKeyring2(projectDir, baseUrl, fetchImpl, now2, void 0, clientSessionId);
   return outcome.status === "minted" ? outcome.file : null;
 }
-async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now()) {
-  const file = readSessionToken(projectDir);
+async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = Date.now(), clientSessionId) {
+  const file = readSessionToken(projectDir, clientSessionId);
   if (!file)
-    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2);
+    return attemptColdStartRung3Mint(projectDir, fetchImpl, now2, clientSessionId);
   if (isSessionTokenValid(file, now2)) {
     if (shouldProactivelyRenew(file, now2)) {
-      const outcome2 = await renewSessionToken(projectDir, file, fetchImpl);
+      const outcome2 = await renewSessionToken(projectDir, file, fetchImpl, clientSessionId);
       if (outcome2.status === "renewed")
         return outcome2.file;
       if (outcome2.status === "denied") {
-        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2);
+        const minted = await attemptRung3Mint(projectDir, file, fetchImpl, now2, clientSessionId);
         if (minted.status === "minted")
           return minted.file;
       }
@@ -3252,14 +3258,14 @@ async function resolveUsableSessionToken(projectDir, fetchImpl = fetch, now2 = D
     }
     return file;
   }
-  const outcome = await renewSessionToken(projectDir, file, fetchImpl);
+  const outcome = await renewSessionToken(projectDir, file, fetchImpl, clientSessionId);
   if (outcome.status === "renewed")
     return outcome.file;
   if (outcome.status === "denied")
-    return handleRenewDenied(projectDir, file, fetchImpl, now2);
+    return handleRenewDenied(projectDir, file, fetchImpl, now2, clientSessionId);
   return file;
 }
-var import_node_fs7, import_node_path6, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS;
+var import_node_fs7, import_node_path6, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_PROACTIVE_RENEW_FRACTION, RENEW_TIMEOUT_MS, SESSION_TOKEN_SIDECAR_DIR;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
@@ -3271,6 +3277,7 @@ var init_session_rest_token = __esm({
     SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
     SESSION_TOKEN_PROACTIVE_RENEW_FRACTION = 0.8;
     RENEW_TIMEOUT_MS = 3e3;
+    SESSION_TOKEN_SIDECAR_DIR = "sessions";
   }
 });
 
@@ -3799,7 +3806,7 @@ async function fetchRemoteClassificationSnapshot(clientSessionId) {
 }
 
 // dist/hooks/lib/compliance-telemetry.js
-var import_node_fs8 = require("node:fs");
+var import_node_fs9 = require("node:fs");
 var import_node_path7 = require("node:path");
 init_config_runtime();
 
@@ -3984,13 +3991,163 @@ function parseTranscript(transcriptPath) {
 
 // dist/hooks/lib/compliance-telemetry.js
 init_session_rest_token();
+
+// dist/hooks/lib/process-pin.js
+var import_node_crypto4 = require("node:crypto");
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs8 = require("node:fs");
+var import_node_os = require("node:os");
+var CLIENT_SESSION_ID_PREFIX = "pin2-";
+var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
+var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
+function defaultReadProcStat(pid) {
+  return (0, import_node_fs8.readFileSync)(`/proc/${pid}/stat`, "utf8");
+}
+function defaultReadProcComm(pid) {
+  return (0, import_node_fs8.readFileSync)(`/proc/${pid}/comm`, "utf8");
+}
+function defaultHasProc() {
+  return (0, import_node_fs8.existsSync)("/proc/self/stat");
+}
+function defaultRunPs(args) {
+  return (0, import_node_child_process4.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+}
+function defaultReadMachineId() {
+  return (0, import_node_fs8.readFileSync)("/etc/machine-id", "utf8");
+}
+function defaultGetUser() {
+  try {
+    const name = (0, import_node_os.userInfo)().username;
+    if (name)
+      return name;
+  } catch {
+  }
+  return process.env.USER ?? process.env.USERNAME ?? "";
+}
+function parseProcStat(raw) {
+  const lastParen = raw.lastIndexOf(")");
+  if (lastParen === -1)
+    return null;
+  const rest = raw.slice(lastParen + 1).trim().split(/\s+/);
+  const ppidStr = rest[1];
+  const starttimeStr = rest[19];
+  if (!ppidStr || !starttimeStr)
+    return null;
+  const ppid = Number.parseInt(ppidStr, 10);
+  if (!Number.isFinite(ppid))
+    return null;
+  return { ppid, starttime: starttimeStr };
+}
+function walkLinuxAncestry(startPid, maxHops, readStat, readComm) {
+  let pid = startPid;
+  let statInfo = null;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let stat;
+    try {
+      stat = readStat(pid);
+    } catch {
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    }
+    const parsed = parseProcStat(stat);
+    if (!parsed)
+      return statInfo ? { pid, starttime: statInfo.starttime } : null;
+    statInfo = parsed;
+    let comm = "";
+    try {
+      comm = readComm(pid).trim();
+    } catch {
+      return { pid, starttime: parsed.starttime };
+    }
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: parsed.starttime };
+    }
+    pid = parsed.ppid;
+  }
+  return statInfo ? { pid, starttime: statInfo.starttime } : null;
+}
+function walkPsAncestry(startPid, maxHops, runPs) {
+  let pid = startPid;
+  for (let hop = 0; hop <= maxHops; hop++) {
+    let out;
+    try {
+      out = runPs(["-o", "ppid=,comm=,lstart=", "-p", String(pid)]);
+    } catch {
+      return null;
+    }
+    const line = out.trim();
+    if (!line)
+      return null;
+    const match = line.match(/^(\d+)\s+(\S+)\s+(.+)$/);
+    if (!match)
+      return null;
+    const [, ppidStr, comm, lstart] = match;
+    const ppid = Number.parseInt(ppidStr, 10);
+    if (!Number.isFinite(ppid))
+      return null;
+    if (!SHELL_NAME_RE.test(comm) || hop === maxHops) {
+      return { pid, starttime: lstart.trim() };
+    }
+    pid = ppid;
+  }
+  return null;
+}
+function getProcessPin(options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const startPid = options.startPid ?? process.ppid;
+    const maxHops = options.maxWalkHops ?? 3;
+    if (!Number.isFinite(startPid) || startPid <= 0)
+      return null;
+    let ancestor = null;
+    const hasProc = options.hasProc ?? defaultHasProc;
+    if (platform === "linux" && hasProc()) {
+      ancestor = walkLinuxAncestry(startPid, maxHops, options.readProcStat ?? defaultReadProcStat, options.readProcComm ?? defaultReadProcComm);
+    } else if (platform === "darwin" || platform === "linux") {
+      ancestor = walkPsAncestry(startPid, maxHops, options.runPs ?? defaultRunPs);
+    }
+    if (!ancestor)
+      return null;
+    let host = "";
+    try {
+      host = (options.readMachineId ?? defaultReadMachineId)().trim();
+    } catch {
+    }
+    if (!host) {
+      host = (options.getHostname ?? import_node_os.hostname)();
+    }
+    if (!host)
+      return null;
+    let user = "";
+    try {
+      user = (options.getUser ?? defaultGetUser)().trim();
+    } catch {
+      user = "";
+    }
+    const agentId = (options.agentId ?? "").trim();
+    const raw = agentId ? `${host}|${user}|${ancestor.pid}|${ancestor.starttime}|${agentId}` : `${host}|${user}|${ancestor.pid}|${ancestor.starttime}`;
+    const prefix = agentId ? CLIENT_SESSION_ID_AGENT_PREFIX : CLIENT_SESSION_ID_PREFIX;
+    const value = `${prefix}${(0, import_node_crypto4.createHash)("sha256").update(raw).digest("hex").slice(0, 32)}`;
+    return {
+      value,
+      pid: ancestor.pid,
+      startTime: ancestor.starttime,
+      host,
+      user,
+      ...agentId ? { agentId } : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
+// dist/hooks/lib/compliance-telemetry.js
 var MAX_SAMPLES = 200;
 var CHECKPOINT_PATTERN = /gr[āa]matr\s*✓\s*understood:/i;
 var UPDATE_CUE_PATTERN = /⚠\s*update\s*→/;
 var UPDATE_CUE_FETCH_TIMEOUT_MS = 1500;
 async function readUpdateCueExpected(projectDir) {
   try {
-    const token = await resolveUsableSessionToken(projectDir);
+    const token = await resolveUsableSessionToken(projectDir, fetch, Date.now(), getProcessPin()?.value);
     if (!token)
       return false;
     const url = `${apiV1Base(token.base_url)}/statusline`;
@@ -4043,25 +4200,25 @@ function recordComplianceSample(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs8.existsSync)(dir))
-      (0, import_node_fs8.mkdirSync)(dir, { recursive: true });
+    if (!(0, import_node_fs9.existsSync)(dir))
+      (0, import_node_fs9.mkdirSync)(dir, { recursive: true });
     const jsonlPath = (0, import_node_path7.join)(dir, "compliance-telemetry.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs8.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs8.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs9.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs9.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs8.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs9.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
 
 // dist/hooks/lib/session-root-registry.js
-var import_node_fs9 = require("node:fs");
+var import_node_fs10 = require("node:fs");
 var import_node_path8 = require("node:path");
 init_config_runtime();
 init_project_state();
@@ -4087,9 +4244,9 @@ function sessionRootPath(sessionId) {
 }
 function readRaw(path2) {
   try {
-    if (!(0, import_node_fs9.existsSync)(path2))
+    if (!(0, import_node_fs10.existsSync)(path2))
       return null;
-    return JSON.parse((0, import_node_fs9.readFileSync)(path2, "utf8"));
+    return JSON.parse((0, import_node_fs10.readFileSync)(path2, "utf8"));
   } catch {
     return null;
   }
@@ -4107,15 +4264,15 @@ function readSessionRoot(sessionId) {
     const lastSeen = Date.parse(raw.last_seen_at);
     if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
       try {
-        (0, import_node_fs9.rmSync)(path2, { force: true });
+        (0, import_node_fs10.rmSync)(path2, { force: true });
       } catch {
       }
       return null;
     }
   }
-  if (!(0, import_node_fs9.existsSync)(raw.project_root)) {
+  if (!(0, import_node_fs10.existsSync)(raw.project_root)) {
     try {
-      (0, import_node_fs9.rmSync)(path2, { force: true });
+      (0, import_node_fs10.rmSync)(path2, { force: true });
     } catch {
     }
     return null;
@@ -4147,19 +4304,19 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
   };
   try {
     const dir = registryDebugDir();
-    if (!(0, import_node_fs9.existsSync)(dir))
-      (0, import_node_fs9.mkdirSync)(dir, { recursive: true });
+    if (!(0, import_node_fs10.existsSync)(dir))
+      (0, import_node_fs10.mkdirSync)(dir, { recursive: true });
     const jsonlPath = (0, import_node_path8.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs9.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs9.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs10.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs10.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > REGISTRY_SAMPLE_CAP) {
       existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
     }
-    (0, import_node_fs9.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs10.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }

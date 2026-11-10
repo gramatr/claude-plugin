@@ -1277,7 +1277,13 @@ var init_dpop_key = __esm({
 });
 
 // dist/hooks/lib/session-rest-token.js
-function getSessionTokenPath(projectDir) {
+function sanitizeClientSessionIdForFilename(clientSessionId) {
+  return clientSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+function getSessionTokenPath(projectDir, clientSessionId) {
+  if (clientSessionId) {
+    return (0, import_node_path11.join)(projectDir, GRAMATR_DIR2, SESSION_TOKEN_SIDECAR_DIR, `${sanitizeClientSessionIdForFilename(clientSessionId)}.session`);
+  }
   return (0, import_node_path11.join)(projectDir, GRAMATR_DIR2, SESSION_FILE);
 }
 function normalizeRestTokenBlock(block) {
@@ -1296,13 +1302,13 @@ function normalizeRestTokenBlock(block) {
   }
   return null;
 }
-function writeSessionToken(projectDir, file) {
-  const dir = (0, import_node_path11.join)(projectDir, GRAMATR_DIR2);
+function writeSessionToken(projectDir, file, clientSessionId) {
+  const dest = getSessionTokenPath(projectDir, clientSessionId);
+  const dir = (0, import_node_path11.dirname)(dest);
   if (!(0, import_node_fs11.existsSync)(dir)) {
     (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   const stamped = { ...file, written_at: (/* @__PURE__ */ new Date()).toISOString() };
-  const dest = getSessionTokenPath(projectDir);
   const tmp = `${dest}.tmp.${process.pid}`;
   (0, import_node_fs11.writeFileSync)(tmp, JSON.stringify(stamped, null, 2) + "\n", { encoding: "utf8", mode: 384 });
   (0, import_node_fs11.renameSync)(tmp, dest);
@@ -1311,14 +1317,14 @@ function writeSessionToken(projectDir, file) {
   } catch {
   }
 }
-function persistBootstrapRestToken(projectDir, block) {
+function persistBootstrapRestToken(projectDir, block, clientSessionId) {
   const file = normalizeRestTokenBlock(block);
   if (!file)
     return false;
-  writeSessionToken(projectDir, file);
+  writeSessionToken(projectDir, file, clientSessionId);
   return true;
 }
-var import_node_fs11, import_node_path11, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS;
+var import_node_fs11, import_node_path11, GRAMATR_DIR2, SESSION_FILE, SESSION_TOKEN_EXPIRY_SKEW_MS, SESSION_TOKEN_SIDECAR_DIR;
 var init_session_rest_token = __esm({
   "dist/hooks/lib/session-rest-token.js"() {
     "use strict";
@@ -1328,6 +1334,7 @@ var init_session_rest_token = __esm({
     GRAMATR_DIR2 = ".gramatr";
     SESSION_FILE = ".session";
     SESSION_TOKEN_EXPIRY_SKEW_MS = 30 * 1e3;
+    SESSION_TOKEN_SIDECAR_DIR = "sessions";
   }
 });
 
@@ -3942,7 +3949,7 @@ async function main() {
   }
   if (payload.rest_token) {
     try {
-      persistBootstrapRestToken(PROJECT_DIR, payload.rest_token);
+      persistBootstrapRestToken(PROJECT_DIR, payload.rest_token, processPin?.value);
     } catch {
     }
   }
