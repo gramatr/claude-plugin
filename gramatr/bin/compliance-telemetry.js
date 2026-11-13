@@ -52,6 +52,10 @@ function getGramatrTokenFromEnv() {
     return legacy;
   return null;
 }
+function getPluginDataDirFromEnv() {
+  const dir = process.env.CLAUDE_PLUGIN_DATA;
+  return dir && dir.length > 0 ? dir : null;
+}
 function getGramatrUrlFromEnv() {
   const url = process.env.GRAMATR_URL;
   return url && url.length > 0 ? url : null;
@@ -3385,10 +3389,31 @@ function resolveEnvOverrideToken() {
     return envToken;
   return null;
 }
+function readPluginSignInToken(now2 = Date.now()) {
+  const dataDir = getPluginDataDirFromEnv();
+  if (!dataDir)
+    return null;
+  try {
+    const parsed = JSON.parse((0, import_node_fs.readFileSync)((0, import_node_path.join)(dataDir, "token.json"), "utf8"));
+    if (typeof parsed.token !== "string" || parsed.token.length === 0)
+      return null;
+    if (typeof parsed.expires_at === "string" && parsed.expires_at.length > 0) {
+      const expiresAt = Date.parse(parsed.expires_at);
+      if (!Number.isNaN(expiresAt) && expiresAt <= now2)
+        return null;
+    }
+    return parsed.token;
+  } catch {
+    return null;
+  }
+}
 function getToken() {
   const envOverride = resolveEnvOverrideToken();
   if (envOverride)
     return envOverride;
+  const pluginToken = readPluginSignInToken();
+  if (pluginToken)
+    return pluginToken;
   if (cachedToken && isExpired(cachedExpiresAt)) {
     cachedToken = null;
     cachedExpiresAt = null;

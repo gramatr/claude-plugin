@@ -121,6 +121,9 @@ function isKeyringFileOnlyFromEnv() {
   const raw = process.env.GRAMATR_KEYRING_FILE_ONLY;
   return raw === "1" || raw === "true";
 }
+function isRuntimeGitContextEnabledFromEnv() {
+  return process.env.GRAMATR_RUNTIME_GIT_CONTEXT_ENABLED === "true";
+}
 function getClaudeModelFromEnv() {
   const anthropic = process.env.ANTHROPIC_MODEL;
   if (anthropic && anthropic.length > 0)
@@ -3389,7 +3392,7 @@ function projectIdFromAud(aud) {
 }
 function debugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path13.join)(home, ".gramatr", "debug");
+  return (0, import_node_path14.join)(home, ".gramatr", "debug");
 }
 function recordTurn1Arming(args) {
   const sample = {
@@ -3403,19 +3406,19 @@ function recordTurn1Arming(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs12.existsSync)(dir))
-      (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path13.join)(dir, "turn1-arming.jsonl");
+    if (!(0, import_node_fs13.existsSync)(dir))
+      (0, import_node_fs13.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path14.join)(dir, "turn1-arming.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs12.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs12.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs13.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs13.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs12.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs13.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -3429,19 +3432,19 @@ function recordBootstrapRecovered(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs12.existsSync)(dir))
-      (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path13.join)(dir, "bootstrap-recovered.jsonl");
+    if (!(0, import_node_fs13.existsSync)(dir))
+      (0, import_node_fs13.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path14.join)(dir, "bootstrap-recovered.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs12.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs12.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs13.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs13.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs12.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs13.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -3456,49 +3459,49 @@ function recordProjectPinMismatch(args) {
   };
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs12.existsSync)(dir))
-      (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path13.join)(dir, "project-pin-mismatch.jsonl");
+    if (!(0, import_node_fs13.existsSync)(dir))
+      (0, import_node_fs13.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path14.join)(dir, "project-pin-mismatch.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs12.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs12.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs13.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs13.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs12.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs13.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
 function appendHookPromotionSample(sample) {
   try {
     const dir = debugDir();
-    if (!(0, import_node_fs12.existsSync)(dir))
-      (0, import_node_fs12.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path13.join)(dir, "hook-promotion.jsonl");
-    const lastPath = (0, import_node_path13.join)(dir, "last-sample.json");
+    if (!(0, import_node_fs13.existsSync)(dir))
+      (0, import_node_fs13.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path14.join)(dir, "hook-promotion.jsonl");
+    const lastPath = (0, import_node_path14.join)(dir, "last-sample.json");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs12.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs12.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs13.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs13.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > MAX_SAMPLES) {
       existing = existing.slice(existing.length - MAX_SAMPLES);
     }
-    (0, import_node_fs12.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
-    (0, import_node_fs12.writeFileSync)(lastPath, JSON.stringify(sample, null, 2), "utf8");
+    (0, import_node_fs13.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs13.writeFileSync)(lastPath, JSON.stringify(sample, null, 2), "utf8");
   } catch {
   }
 }
-var import_node_fs12, import_node_path13, MAX_SAMPLES;
+var import_node_fs13, import_node_path14, MAX_SAMPLES;
 var init_hook_promotion_telemetry = __esm({
   "dist/hooks/lib/hook-promotion-telemetry.js"() {
     "use strict";
-    import_node_fs12 = require("node:fs");
-    import_node_path13 = require("node:path");
+    import_node_fs13 = require("node:fs");
+    import_node_path14 = require("node:path");
     init_config_runtime();
     MAX_SAMPLES = 200;
   }
@@ -3519,8 +3522,8 @@ init_session_rest_token();
 init_mint_session_token();
 
 // dist/hooks/lib/bootstrap-recovery.js
-var import_node_fs9 = require("node:fs");
-var import_node_path10 = require("node:path");
+var import_node_fs10 = require("node:fs");
+var import_node_path11 = require("node:path");
 init_config_runtime();
 init_gramatr_hook_utils();
 init_session_rest_token();
@@ -3756,10 +3759,63 @@ function persistBootstrapPayload(raw, opts) {
   return result;
 }
 
+// dist/hooks/lib/bootstrap-git-remote.js
+var import_node_child_process4 = require("node:child_process");
+var import_node_fs9 = require("node:fs");
+var import_node_path10 = require("node:path");
+init_project_state();
+init_config_runtime();
+function resolveBootstrapGitRemote(projectDir) {
+  try {
+    const proj = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path10.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    if (typeof proj.git_remote === "string" && proj.git_remote)
+      return proj.git_remote;
+  } catch {
+  }
+  if (isRuntimeGitContextEnabledFromEnv()) {
+    try {
+      const ctx = readGitContext(projectDir);
+      if (ctx?.remote_url)
+        return ctx.remote_url;
+    } catch {
+    }
+  }
+  try {
+    const ctx = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path10.join)(projectDir, ".gramatr", "git-context.json"), "utf8"));
+    if (typeof ctx.remote_url === "string" && ctx.remote_url)
+      return ctx.remote_url;
+  } catch {
+  }
+  try {
+    const gitEnv = { ...process.env };
+    for (const key of [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_CEILING_DIRECTORIES"
+    ]) {
+      delete gitEnv[key];
+    }
+    const out = (0, import_node_child_process4.execFileSync)("git", ["remote", "get-url", "origin"], {
+      cwd: projectDir,
+      env: gitEnv,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    if (out)
+      return out;
+  } catch {
+  }
+  return void 0;
+}
+
 // dist/hooks/lib/bootstrap-recovery.js
 function readGitRemoteFromProjectFile(projectDir) {
   try {
-    const proj = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path10.join)(projectDir, ".gramatr", "project.json"), "utf8"));
+    const proj = JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path11.join)(projectDir, ".gramatr", "project.json"), "utf8"));
     const drift = proj.drift;
     const remote = typeof proj.git_remote === "string" && proj.git_remote || drift && typeof drift.git_remote === "string" && drift.git_remote || null;
     return remote || null;
@@ -3773,13 +3829,13 @@ var RECOVERY_RETRY_JITTER_MS = 250;
 var RECOVERY_LOCK_FILE = ".session-recovery.lock";
 var RECOVERY_LOCK_STALE_MS = RECOVERY_TIMEOUT_MS + RECOVERY_RETRY_JITTER_MS + RECOVERY_RETRY_TIMEOUT_MS + 2e3;
 async function withRecoveryLock(projectDir, fn) {
-  const dir = (0, import_node_path10.join)(projectDir, ".gramatr");
+  const dir = (0, import_node_path11.join)(projectDir, ".gramatr");
   try {
-    if (!(0, import_node_fs9.existsSync)(dir))
-      (0, import_node_fs9.mkdirSync)(dir, { recursive: true, mode: 448 });
-    const lockPath = (0, import_node_path10.join)(dir, RECOVERY_LOCK_FILE);
-    if (!(0, import_node_fs9.existsSync)(lockPath))
-      (0, import_node_fs9.writeFileSync)(lockPath, "", { mode: 384 });
+    if (!(0, import_node_fs10.existsSync)(dir))
+      (0, import_node_fs10.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const lockPath = (0, import_node_path11.join)(dir, RECOVERY_LOCK_FILE);
+    if (!(0, import_node_fs10.existsSync)(lockPath))
+      (0, import_node_fs10.writeFileSync)(lockPath, "", { mode: 384 });
     const lockfile = await Promise.resolve().then(() => __toESM(require_proper_lockfile(), 1));
     let release = null;
     try {
@@ -3801,8 +3857,8 @@ async function withRecoveryLock(projectDir, fn) {
 }
 function findUsableMcpOAuthEntry(remoteUrl) {
   try {
-    const credFile = (0, import_node_path10.resolve)(getHomeDir(), ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs9.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path11.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (mcpOAuth) {
       for (const entry of Object.values(mcpOAuth)) {
@@ -3827,7 +3883,7 @@ function resolveClientBearerToken(remoteUrl) {
   const pluginDataDir = process.env.CLAUDE_PLUGIN_DATA ?? "";
   if (pluginDataDir) {
     try {
-      const cfg = JSON.parse((0, import_node_fs9.readFileSync)((0, import_node_path10.join)(pluginDataDir, "token.json"), "utf8"));
+      const cfg = JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path11.join)(pluginDataDir, "token.json"), "utf8"));
       if (typeof cfg.token === "string" && cfg.token)
         return cfg.token;
     } catch {
@@ -3914,7 +3970,11 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl, timeoutMs = RE
         // #3529 — flag so the server audit-logs the self-heal distinctly from a
         // normal SessionStart bootstrap.
         recovery: true,
-        ...opts.gitRemote ? { git_remote: opts.gitRemote } : {},
+        // ALWAYS present, like the SessionStart bootstrap (init-identity.ts,
+        // #3531). The server treats an ABSENT git_remote as "ask the client
+        // for a remote" and answers with no token, so a recovery that omitted
+        // it could never succeed; '' declares "no remote, resolve anyway".
+        git_remote: opts.gitRemote ?? "",
         ...opts.clientSessionId ? { client_session_id: opts.clientSessionId } : {}
       }
     }
@@ -3951,6 +4011,9 @@ async function attemptRecovery(remoteUrl, token, opts, fetchImpl, timeoutMs = RE
   syncIdentityCacheFromPayload(parsed);
   const restToken = extractRestToken(parsed);
   if (!restToken) {
+    if (parsed.resolved === false && typeof parsed.needs === "string" && parsed.needs.length > 0) {
+      return { status: "unresolved", needs: parsed.needs };
+    }
     return { status: "no_token" };
   }
   const persisted = persistBootstrapPayload(parsed, {
@@ -3979,7 +4042,7 @@ async function recoverSessionToken(opts) {
       return { status: "no_credential" };
     const recoveryOpts = {
       ...opts,
-      gitRemote: opts.gitRemote ?? readGitRemoteFromProjectFile(opts.projectDir)
+      gitRemote: opts.gitRemote ?? readGitRemoteFromProjectFile(opts.projectDir) ?? resolveBootstrapGitRemote(opts.projectDir) ?? ""
     };
     opts = recoveryOpts;
     let outcome = await attemptRecovery(remoteUrl, token, opts, fetchImpl);
@@ -3996,13 +4059,13 @@ async function recoverSessionToken(opts) {
 init_gramatr_hook_utils();
 
 // dist/hooks/lib/credential-heal.js
-var import_node_fs10 = require("node:fs");
-var import_node_path11 = require("node:path");
+var import_node_fs11 = require("node:fs");
+var import_node_path12 = require("node:path");
 init_config_runtime();
 function isCachedMcpOAuthEntryStale(remoteUrl, now2 = Date.now()) {
   try {
-    const credFile = (0, import_node_path11.resolve)(getHomeDir(), ".claude", ".credentials.json");
-    const creds = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
+    const credFile = (0, import_node_path12.resolve)(getHomeDir(), ".claude", ".credentials.json");
+    const creds = JSON.parse((0, import_node_fs11.readFileSync)(credFile, "utf8"));
     const mcpOAuth = creds.mcpOAuth;
     if (!mcpOAuth)
       return false;
@@ -4052,28 +4115,28 @@ function removeStaleMcpOAuthEntry(creds, remoteUrl) {
   return { creds: out, removed };
 }
 function credentialsFilePath() {
-  return (0, import_node_path11.resolve)(getHomeDir(), ".claude", ".credentials.json");
+  return (0, import_node_path12.resolve)(getHomeDir(), ".claude", ".credentials.json");
 }
 var PURGE_CLI_ENV = "GRAMATR_PURGE_STALE_MCP_OAUTH";
 function runStaleAuthPurge(remoteUrl) {
   const credFile = credentialsFilePath();
-  if (!(0, import_node_fs10.existsSync)(credFile)) {
+  if (!(0, import_node_fs11.existsSync)(credFile)) {
     return { status: "no-file", removed: [] };
   }
-  const parsed = JSON.parse((0, import_node_fs10.readFileSync)(credFile, "utf8"));
+  const parsed = JSON.parse((0, import_node_fs11.readFileSync)(credFile, "utf8"));
   const { creds, removed } = removeStaleMcpOAuthEntry(parsed, remoteUrl);
   if (removed.length === 0) {
     return { status: "nothing-to-remove", removed: [] };
   }
   const backupPath = `${credFile}.gramatr-bak-${Date.now()}`;
-  (0, import_node_fs10.copyFileSync)(credFile, backupPath);
+  (0, import_node_fs11.copyFileSync)(credFile, backupPath);
   const tmp = `${credFile}.gramatr-tmp-${process.pid}`;
-  (0, import_node_fs10.writeFileSync)(tmp, `${JSON.stringify(creds, null, 2)}
+  (0, import_node_fs11.writeFileSync)(tmp, `${JSON.stringify(creds, null, 2)}
 `, { encoding: "utf8", mode: 384 });
   try {
-    (0, import_node_fs10.renameSync)(tmp, credFile);
+    (0, import_node_fs11.renameSync)(tmp, credFile);
   } catch (err) {
-    (0, import_node_fs10.rmSync)(tmp, { force: true });
+    (0, import_node_fs11.rmSync)(tmp, { force: true });
     throw err;
   }
   return { status: "purged", removed, backupPath };
@@ -4110,12 +4173,12 @@ Now run \`/mcp\` in Claude Code and reconnect gr\u0101matr.
 }
 
 // dist/hooks/lib/server-version-watch.js
-var import_node_fs11 = require("node:fs");
-var import_node_path12 = require("node:path");
+var import_node_fs12 = require("node:fs");
+var import_node_path13 = require("node:path");
 var GRAMATR_DIR4 = ".gramatr";
 var SERVER_VERSION_FILE = ".server-version";
 function getServerVersionPath(projectDir) {
-  return (0, import_node_path12.join)(projectDir, GRAMATR_DIR4, SERVER_VERSION_FILE);
+  return (0, import_node_path13.join)(projectDir, GRAMATR_DIR4, SERVER_VERSION_FILE);
 }
 function extractServerVersion(route) {
   if (!route)
@@ -4131,9 +4194,9 @@ function extractServerVersion(route) {
 function readLastSeenServerVersion(projectDir) {
   try {
     const path2 = getServerVersionPath(projectDir);
-    if (!(0, import_node_fs11.existsSync)(path2))
+    if (!(0, import_node_fs12.existsSync)(path2))
       return null;
-    const raw = (0, import_node_fs11.readFileSync)(path2, "utf8").trim();
+    const raw = (0, import_node_fs12.readFileSync)(path2, "utf8").trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
@@ -4141,13 +4204,13 @@ function readLastSeenServerVersion(projectDir) {
 }
 function writeLastSeenServerVersion(projectDir, version) {
   try {
-    const dir = (0, import_node_path12.join)(projectDir, GRAMATR_DIR4);
-    if (!(0, import_node_fs11.existsSync)(dir))
-      (0, import_node_fs11.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path13.join)(projectDir, GRAMATR_DIR4);
+    if (!(0, import_node_fs12.existsSync)(dir))
+      (0, import_node_fs12.mkdirSync)(dir, { recursive: true, mode: 448 });
     const dest = getServerVersionPath(projectDir);
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs11.writeFileSync)(tmp, version + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs11.renameSync)(tmp, dest);
+    (0, import_node_fs12.writeFileSync)(tmp, version + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs12.renameSync)(tmp, dest);
   } catch {
   }
 }
@@ -4163,8 +4226,8 @@ function isServerVersionChange(lastSeen, observed) {
 init_hook_promotion_telemetry();
 
 // dist/hooks/lib/arm-guard.js
-var import_node_fs13 = require("node:fs");
-var import_node_path14 = require("node:path");
+var import_node_fs14 = require("node:fs");
+var import_node_path15 = require("node:path");
 init_project_state();
 init_git_config_reader();
 init_hook_promotion_telemetry();
@@ -4193,7 +4256,7 @@ function readCachedProjectIdDefault(projectDir) {
 }
 function readCachedGitRemoteDefault(projectDir) {
   try {
-    const raw = (0, import_node_fs13.readFileSync)((0, import_node_path14.join)(projectDir, ".gramatr", "git-context.json"), "utf8");
+    const raw = (0, import_node_fs14.readFileSync)((0, import_node_path15.join)(projectDir, ".gramatr", "git-context.json"), "utf8");
     const ctx = JSON.parse(raw);
     if (typeof ctx.remote_url === "string" && ctx.remote_url.length > 0) {
       return ctx.remote_url;
@@ -4273,8 +4336,8 @@ function resolveVersion() {
 var VERSION = resolveVersion();
 
 // dist/hooks/lib/session-root-registry.js
-var import_node_fs14 = require("node:fs");
-var import_node_path15 = require("node:path");
+var import_node_fs15 = require("node:fs");
+var import_node_path16 = require("node:path");
 init_config_runtime();
 init_project_state();
 var DEFAULT_REGISTRY_TTL_DAYS = 14;
@@ -4283,7 +4346,7 @@ function registryTtlMs() {
   return days * 24 * 60 * 60 * 1e3;
 }
 function registryDir() {
-  return (0, import_node_path15.join)(getHomeDir(), ".gramatr", "sessions");
+  return (0, import_node_path16.join)(getHomeDir(), ".gramatr", "sessions");
 }
 function sessionFileName(sessionId) {
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "");
@@ -4295,13 +4358,13 @@ function sessionRootPath(sessionId) {
   const name = sessionFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path15.join)(registryDir(), name);
+  return (0, import_node_path16.join)(registryDir(), name);
 }
 function readRaw(path2) {
   try {
-    if (!(0, import_node_fs14.existsSync)(path2))
+    if (!(0, import_node_fs15.existsSync)(path2))
       return null;
-    return JSON.parse((0, import_node_fs14.readFileSync)(path2, "utf8"));
+    return JSON.parse((0, import_node_fs15.readFileSync)(path2, "utf8"));
   } catch {
     return null;
   }
@@ -4319,15 +4382,15 @@ function readSessionRoot(sessionId) {
     const lastSeen = Date.parse(raw.last_seen_at);
     if (Number.isFinite(lastSeen) && Date.now() - lastSeen > ttlMs) {
       try {
-        (0, import_node_fs14.rmSync)(path2, { force: true });
+        (0, import_node_fs15.rmSync)(path2, { force: true });
       } catch {
       }
       return null;
     }
   }
-  if (!(0, import_node_fs14.existsSync)(raw.project_root)) {
+  if (!(0, import_node_fs15.existsSync)(raw.project_root)) {
     try {
-      (0, import_node_fs14.rmSync)(path2, { force: true });
+      (0, import_node_fs15.rmSync)(path2, { force: true });
     } catch {
     }
     return null;
@@ -4346,7 +4409,7 @@ function peekSessionRootProjectId(sessionId) {
 }
 function registryDebugDir() {
   const home = getHomeDir() || "/tmp";
-  return (0, import_node_path15.join)(home, ".gramatr", "debug");
+  return (0, import_node_path16.join)(home, ".gramatr", "debug");
 }
 function recordRegistryResolution(resolution, sessionId, clientType) {
   if (resolution === "hit")
@@ -4359,19 +4422,19 @@ function recordRegistryResolution(resolution, sessionId, clientType) {
   };
   try {
     const dir = registryDebugDir();
-    if (!(0, import_node_fs14.existsSync)(dir))
-      (0, import_node_fs14.mkdirSync)(dir, { recursive: true });
-    const jsonlPath = (0, import_node_path15.join)(dir, "registry-resolution.jsonl");
+    if (!(0, import_node_fs15.existsSync)(dir))
+      (0, import_node_fs15.mkdirSync)(dir, { recursive: true });
+    const jsonlPath = (0, import_node_path16.join)(dir, "registry-resolution.jsonl");
     const line = JSON.stringify(sample);
     let existing = [];
-    if ((0, import_node_fs14.existsSync)(jsonlPath)) {
-      existing = (0, import_node_fs14.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    if ((0, import_node_fs15.existsSync)(jsonlPath)) {
+      existing = (0, import_node_fs15.readFileSync)(jsonlPath, "utf8").split("\n").filter((l) => l.trim().length > 0);
     }
     existing.push(line);
     if (existing.length > REGISTRY_SAMPLE_CAP) {
       existing = existing.slice(existing.length - REGISTRY_SAMPLE_CAP);
     }
-    (0, import_node_fs14.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
+    (0, import_node_fs15.writeFileSync)(jsonlPath, existing.join("\n") + "\n", "utf8");
   } catch {
   }
 }
@@ -4409,15 +4472,15 @@ function readCommittedProjectId(dir) {
 }
 
 // dist/hooks/lib/classification-cache.js
-var import_node_fs15 = require("node:fs");
-var import_node_path17 = require("node:path");
+var import_node_fs16 = require("node:fs");
+var import_node_path18 = require("node:path");
 
 // dist/hooks/lib/hook-state.js
 init_config_runtime();
-var import_node_path16 = require("node:path");
+var import_node_path17 = require("node:path");
 function getGramatrStateDir() {
-  const dir = getGramatrDirFromEnv() || (0, import_node_path16.join)(getHomeDir(), ".gramatr");
-  return (0, import_node_path16.join)(dir, ".state");
+  const dir = getGramatrDirFromEnv() || (0, import_node_path17.join)(getHomeDir(), ".gramatr");
+  return (0, import_node_path17.join)(dir, ".state");
 }
 
 // dist/hooks/lib/classification-cache.js
@@ -4427,19 +4490,19 @@ function classificationCacheKeyPath(sessionId) {
   const name = activeSessionKeyFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path17.join)(getGramatrStateDir(), CLASSIFICATION_SUBDIR, name);
+  return (0, import_node_path18.join)(getGramatrStateDir(), CLASSIFICATION_SUBDIR, name);
 }
 function setLatestClassification(record) {
   const dest = classificationCacheKeyPath(record.session_id);
   if (!dest)
     return;
   try {
-    const dir = (0, import_node_path17.dirname)(dest);
-    if (!(0, import_node_fs15.existsSync)(dir))
-      (0, import_node_fs15.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path18.dirname)(dest);
+    if (!(0, import_node_fs16.existsSync)(dir))
+      (0, import_node_fs16.mkdirSync)(dir, { recursive: true, mode: 448 });
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs15.writeFileSync)(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs15.renameSync)(tmp, dest);
+    (0, import_node_fs16.writeFileSync)(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs16.renameSync)(tmp, dest);
   } catch {
   }
 }
@@ -4477,53 +4540,53 @@ function persistClassificationResult(options) {
 }
 
 // dist/hooks/lib/packet-cache.js
-var import_node_fs16 = require("node:fs");
-var import_node_path18 = require("node:path");
+var import_node_fs17 = require("node:fs");
+var import_node_path19 = require("node:path");
 init_project_state();
 var PACKET_SUBDIR = "packets";
 function packetCacheKeyPath(sessionId) {
   const name = activeSessionKeyFileName(sessionId);
   if (!name)
     return null;
-  return (0, import_node_path18.join)(getGramatrStateDir(), PACKET_SUBDIR, name);
+  return (0, import_node_path19.join)(getGramatrStateDir(), PACKET_SUBDIR, name);
 }
 function savePacket(record) {
   const dest = packetCacheKeyPath(record.session_id);
   if (!dest)
     return;
   try {
-    const dir = (0, import_node_path18.dirname)(dest);
-    if (!(0, import_node_fs16.existsSync)(dir))
-      (0, import_node_fs16.mkdirSync)(dir, { recursive: true, mode: 448 });
+    const dir = (0, import_node_path19.dirname)(dest);
+    if (!(0, import_node_fs17.existsSync)(dir))
+      (0, import_node_fs17.mkdirSync)(dir, { recursive: true, mode: 448 });
     const tmp = `${dest}.tmp.${process.pid}`;
-    (0, import_node_fs16.writeFileSync)(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 384 });
-    (0, import_node_fs16.renameSync)(tmp, dest);
+    (0, import_node_fs17.writeFileSync)(tmp, JSON.stringify(record) + "\n", { encoding: "utf8", mode: 384 });
+    (0, import_node_fs17.renameSync)(tmp, dest);
   } catch {
   }
 }
 
 // dist/hooks/lib/process-pin.js
 var import_node_crypto4 = require("node:crypto");
-var import_node_child_process4 = require("node:child_process");
-var import_node_fs17 = require("node:fs");
+var import_node_child_process5 = require("node:child_process");
+var import_node_fs18 = require("node:fs");
 var import_node_os = require("node:os");
 var CLIENT_SESSION_ID_PREFIX = "pin2-";
 var CLIENT_SESSION_ID_AGENT_PREFIX = "pin3-";
 var SHELL_NAME_RE = /^(sh|bash|zsh|dash|fish|ksh|csh|tcsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i;
 function defaultReadProcStat(pid) {
-  return (0, import_node_fs17.readFileSync)(`/proc/${pid}/stat`, "utf8");
+  return (0, import_node_fs18.readFileSync)(`/proc/${pid}/stat`, "utf8");
 }
 function defaultReadProcComm(pid) {
-  return (0, import_node_fs17.readFileSync)(`/proc/${pid}/comm`, "utf8");
+  return (0, import_node_fs18.readFileSync)(`/proc/${pid}/comm`, "utf8");
 }
 function defaultHasProc() {
-  return (0, import_node_fs17.existsSync)("/proc/self/stat");
+  return (0, import_node_fs18.existsSync)("/proc/self/stat");
 }
 function defaultRunPs(args) {
-  return (0, import_node_child_process4.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
+  return (0, import_node_child_process5.execFileSync)("ps", args, { encoding: "utf8", timeout: 2e3 });
 }
 function defaultReadMachineId() {
-  return (0, import_node_fs17.readFileSync)("/etc/machine-id", "utf8");
+  return (0, import_node_fs18.readFileSync)("/etc/machine-id", "utf8");
 }
 function defaultGetUser() {
   try {
@@ -4665,13 +4728,19 @@ function resolveUpsRouteProjectDir(input) {
 var RECOVERY_FAILURE_REASONS = {
   no_credential: "no client credential available \u2014 no OAuth token found on disk",
   no_token: "server resolved the session but minted no rest_token",
+  // The server did NOT resolve the session, so there was nothing to mint a
+  // token for. describeRecoveryFailure() appends what it is waiting for.
+  unresolved: "the server could not resolve this session to a project yet, so it issued no session token",
   // #7066 — the server actively rejected the presented credential (401/403).
   // Distinct from `error`: the endpoint is healthy, it is refusing these bytes.
   unauthorized: "the recovery endpoint rejected the presented credential (401/403) \u2014 not a network or server fault",
   error: "network or server error contacting the recovery endpoint"
 };
-function describeRecoveryFailure(status) {
-  return status === "recovered" ? void 0 : RECOVERY_FAILURE_REASONS[status];
+function describeRecoveryFailure(status, needs) {
+  if (status === "recovered")
+    return void 0;
+  const reason = RECOVERY_FAILURE_REASONS[status];
+  return status === "unresolved" && needs ? `${reason} (it is waiting for: ${needs})` : reason;
 }
 function loudRecoveryFailureWarning(reason, status) {
   const detail = reason ? ` (${reason})` : "";
@@ -4726,7 +4795,8 @@ async function selfHealSessionToken(input, projectDir, fetchImpl) {
   }
   return {
     file: outcome.status === "recovered" ? outcome.file : null,
-    outcome: outcome.status
+    outcome: outcome.status,
+    ...outcome.status === "unresolved" ? { needs: outcome.needs } : {}
   };
 }
 async function maybeRefreshStaleIdentity(input, projectDir, fetchImpl, alreadyRecovered) {
@@ -4819,7 +4889,7 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
       token = healed.file;
       selfHealedThisTurn = true;
       if (!token) {
-        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome), healed.outcome);
+        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome, healed.needs), healed.outcome);
       }
     }
   }
@@ -4909,7 +4979,7 @@ async function computeUpsRoute(input, fetchImpl = fetch, projectDirOverride) {
     } else {
       const healed = await selfHealSessionToken(input, projectDir, fetchImpl);
       if (!healed.file) {
-        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome), healed.outcome);
+        return degradedSurfaceWarning(remoteUrl, void 0, void 0, describeRecoveryFailure(healed.outcome, healed.needs), healed.outcome);
       }
       refreshed = healed.file;
     }

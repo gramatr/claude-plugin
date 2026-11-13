@@ -210,6 +210,10 @@ init_mint_credential_store();
 init_project_state();
 init_device_key_store();
 
+// dist/hooks/lib/bootstrap-git-remote.js
+init_project_state();
+init_config_runtime();
+
 // dist/hooks/lib/bootstrap-recovery.js
 var RECOVERY_TIMEOUT_MS = 6e3;
 var RECOVERY_RETRY_TIMEOUT_MS = 12e3;

@@ -304,22 +304,30 @@ function mergeActiveSession(projectDir, patch) {
   const next = mergeActiveSessionFields(prev, patch);
   patchRuntime(projectDir, { active_session: next });
 }
+function isPlaceholderId(value) {
+  return typeof value !== "string" || value.trim() === "" || PLACEHOLDER_IDS.has(value.trim());
+}
+function realIdOrUndefined(value) {
+  return isPlaceholderId(value) ? void 0 : value;
+}
 function writeLegacySessionJson(projectDir, session) {
   const payload = {};
-  if (session.session_id)
-    payload.session_id = session.session_id;
-  if (session.project_id)
-    payload.project_id = session.project_id;
+  const sessionId = realIdOrUndefined(session.session_id);
+  const projectId = realIdOrUndefined(session.project_id);
+  if (sessionId)
+    payload.session_id = sessionId;
+  if (projectId)
+    payload.project_id = projectId;
   if (!payload.session_id && !payload.project_id)
     return;
   const dir = (0, import_node_path.join)(projectDir, GRAMATR_DIR);
   atomicWriteJson((0, import_node_path.join)(dir, "session.json"), dir, payload);
 }
 function persistBootstrapSessionState(projectDir, input) {
-  const sessionId = input.sessionId;
+  const sessionId = realIdOrUndefined(input.sessionId);
   if (!sessionId)
     return;
-  const projectId = input.projectId ?? "";
+  const projectId = realIdOrUndefined(input.projectId) ?? "";
   const clientType = input.clientType ?? "claude-code";
   const next = {
     session_id: sessionId,
@@ -361,7 +369,7 @@ function persistBootstrapSessionState(projectDir, input) {
     ...next.model ? { model: next.model } : {}
   });
 }
-var import_node_child_process, import_node_fs, import_node_path, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
+var import_node_child_process, import_node_fs, import_node_path, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR, PLACEHOLDER_IDS;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -384,6 +392,12 @@ var init_project_state = __esm({
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
     GRAMATR_SESSIONS_SUBDIR = "sessions";
+    PLACEHOLDER_IDS = /* @__PURE__ */ new Set([
+      "no-session",
+      "no-interaction",
+      "no-project",
+      "local"
+    ]);
   }
 });
 
@@ -3033,8 +3047,8 @@ function getProcessPin(options = {}) {
 var import_meta = {};
 function resolveProxyVersion() {
   try {
-    if ("0.44.15") {
-      return "0.44.15";
+    if ("0.44.16") {
+      return "0.44.16";
     }
   } catch {
   }
@@ -3295,8 +3309,8 @@ function writeSessionFile(responseText, projectDir) {
     const manifest = parsed.manifest ?? {};
     const sessionRaw = parsed.session_id ?? parsed.gramatr_session_id ?? manifest.session_id;
     const projectRaw = parsed.project_id ?? manifest.project_id;
-    const sessionId = typeof sessionRaw === "string" ? sessionRaw : void 0;
-    const projectId = typeof projectRaw === "string" ? projectRaw : void 0;
+    const sessionId = realIdOrUndefined(sessionRaw);
+    const projectId = realIdOrUndefined(projectRaw);
     if (sessionId || projectId) {
       writeLegacySessionJson(dir, { session_id: sessionId, project_id: projectId });
       if (sessionId) {
@@ -3358,10 +3372,10 @@ function buildBootstrapNoOpResult(projectDir) {
   try {
     const raw = (0, import_node_fs8.readFileSync)((0, import_node_path7.join)(projectDir, ".gramatr", "session.json"), "utf8");
     const parsed = JSON.parse(raw);
-    const sessionId = typeof parsed.session_id === "string" ? parsed.session_id : void 0;
+    const sessionId = realIdOrUndefined(parsed.session_id);
     if (!sessionId)
       return null;
-    const projectId = typeof parsed.project_id === "string" ? parsed.project_id : void 0;
+    const projectId = realIdOrUndefined(parsed.project_id);
     const text = JSON.stringify({
       source: "bootstrap_noop",
       session_id: sessionId,

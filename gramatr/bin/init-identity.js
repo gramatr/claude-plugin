@@ -48,6 +48,10 @@ function getGramatrTokenFromEnv() {
     return legacy;
   return null;
 }
+function getPluginDataDirFromEnv() {
+  const dir = process.env.CLAUDE_PLUGIN_DATA;
+  return dir && dir.length > 0 ? dir : null;
+}
 function getGramatrUrlFromEnv() {
   const url = process.env.GRAMATR_URL;
   return url && url.length > 0 ? url : null;
@@ -341,11 +345,17 @@ function mergeActiveSession(projectDir, patch) {
 function readGitContext(projectDir) {
   return readRuntime(projectDir).git_context ?? null;
 }
+function isPlaceholderId(value) {
+  return typeof value !== "string" || value.trim() === "" || PLACEHOLDER_IDS.has(value.trim());
+}
+function realIdOrUndefined(value) {
+  return isPlaceholderId(value) ? void 0 : value;
+}
 function persistBootstrapSessionState(projectDir, input) {
-  const sessionId = input.sessionId;
+  const sessionId = realIdOrUndefined(input.sessionId);
   if (!sessionId)
     return;
-  const projectId = input.projectId ?? "";
+  const projectId = realIdOrUndefined(input.projectId) ?? "";
   const clientType = input.clientType ?? "claude-code";
   const next = {
     session_id: sessionId,
@@ -387,7 +397,7 @@ function persistBootstrapSessionState(projectDir, input) {
     ...next.model ? { model: next.model } : {}
   });
 }
-var import_node_child_process, import_node_fs6, import_node_path7, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR;
+var import_node_child_process, import_node_fs6, import_node_path7, GRAMATR_DIR, CLIENT_PROJECT_DIR_ENV, CORE_FILE, RUNTIME_FILE, SCHEMA_VERSION, GRAMATR_SESSIONS_SUBDIR, PLACEHOLDER_IDS;
 var init_project_state = __esm({
   "dist/hooks/lib/project-state.js"() {
     "use strict";
@@ -410,6 +420,12 @@ var init_project_state = __esm({
     RUNTIME_FILE = "runtime.json";
     SCHEMA_VERSION = 1;
     GRAMATR_SESSIONS_SUBDIR = "sessions";
+    PLACEHOLDER_IDS = /* @__PURE__ */ new Set([
+      "no-session",
+      "no-interaction",
+      "no-project",
+      "local"
+    ]);
   }
 });
 
@@ -602,10 +618,31 @@ function resolveEnvOverrideToken() {
     return envToken;
   return null;
 }
+function readPluginSignInToken(now = Date.now()) {
+  const dataDir = getPluginDataDirFromEnv();
+  if (!dataDir)
+    return null;
+  try {
+    const parsed = JSON.parse((0, import_node_fs10.readFileSync)((0, import_node_path10.join)(dataDir, "token.json"), "utf8"));
+    if (typeof parsed.token !== "string" || parsed.token.length === 0)
+      return null;
+    if (typeof parsed.expires_at === "string" && parsed.expires_at.length > 0) {
+      const expiresAt = Date.parse(parsed.expires_at);
+      if (!Number.isNaN(expiresAt) && expiresAt <= now)
+        return null;
+    }
+    return parsed.token;
+  } catch {
+    return null;
+  }
+}
 function getToken() {
   const envOverride = resolveEnvOverrideToken();
   if (envOverride)
     return envOverride;
+  const pluginToken = readPluginSignInToken();
+  if (pluginToken)
+    return pluginToken;
   if (cachedToken && isExpired(cachedExpiresAt)) {
     cachedToken = null;
     cachedExpiresAt = null;
@@ -752,6 +789,9 @@ async function ensureFreshToken() {
   const envOverride = resolveEnvOverrideToken();
   if (envOverride)
     return envOverride;
+  const pluginToken = readPluginSignInToken();
+  if (pluginToken)
+    return pluginToken;
   if (cachedToken && isExpired(cachedExpiresAt)) {
     cachedToken = null;
     cachedExpiresAt = null;

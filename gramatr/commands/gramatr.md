@@ -159,25 +159,25 @@ committing anything.
 
 Run in order:
 
-1. **Derive the remote.**
+1. **Derive the remote and the slug.**
 
    ```bash
    git remote get-url origin
    ```
 
+   The slug is the remote's last two path segments, `owner/repo`, without a
+   trailing `.git` (`git@github.com:acme/website.git` → `acme/website`).
+
 2. **Resolve the project.** Call
    `mcp__plugin_gramatr_gramatr__resolve_project` with:
 
    ```json
-   {
-     "action": "resolve",
-     "git_remote": "<output from Step 1>",
-     "create_if_missing": true
-   }
+   { "action": "resolve", "slug": "<owner>/<repo>" }
    ```
 
-   Keep `project_id` and `slug` from the response (`is_new: true` means a
-   fresh project was created).
+   The `resolve` action takes `slug` (or `uuid`) only; an unknown slug is
+   created. Keep `project.id` (the `project_id`) and `project.slug` from the
+   response (`project.is_new: true` means a fresh project was created).
 
 3. **Confirm, then pin.** Show the user the resolved `slug` + `project_id`
    and ask them to confirm. On confirmation, follow the `project` verb's
@@ -284,9 +284,10 @@ ambiguity, no cross-machine drift.
 
 #### What this does
 
-1. Reads the git remote (`origin`) to derive a stable project slug.
-2. Calls `mcp__plugin_gramatr_gramatr__resolve_project` to resolve or
-   create the project in grāmatr.
+1. Reads the git remote (`origin`) to derive a stable project slug
+   (`owner/repo`).
+2. Calls `mcp__plugin_gramatr_gramatr__resolve_project` with that slug to
+   resolve the project in grāmatr, creating it if the slug is new.
 3. Writes `.gramatr/project.json` with `project_id`, `slug`, and
    `git_remote`.
 4. Tells you to commit the file so all machines share the same mapping.
@@ -301,24 +302,26 @@ Run these in order:
 git remote get-url origin
 ```
 
-Copy the output. If this is not a git repo or there is no `origin` remote,
-you can still proceed by choosing a slug manually in Step 2.
+Copy the output and take the slug from it: the last two path segments,
+`owner/repo`, without a trailing `.git`
+(`https://github.com/acme/website.git` and `git@github.com:acme/website.git`
+both give `acme/website`). If this is not a git repo or there is no `origin`
+remote, you can still proceed by choosing a slug manually in Step 2.
 
 ##### Step 2 — Resolve the project
 
 Call `mcp__plugin_gramatr_gramatr__resolve_project` with:
 
 ```json
-{
-  "action": "resolve",
-  "git_remote": "<output from Step 1>",
-  "create_if_missing": true
-}
+{ "action": "resolve", "slug": "<owner>/<repo>" }
 ```
 
-The response will include `project_id` and `slug`. If `is_new: true`,
-a fresh project was created. If `is_new: false`, you are now linked to
-the existing project (and its full history).
+The `resolve` action takes `slug` (or `uuid`) and nothing else — it has no
+`git_remote` or `create_if_missing` parameter. A slug with no project yet is
+created by this call. The response is `project.id`, `project.slug` and
+`project.is_new`. If `is_new: true`, a fresh project was created. If
+`is_new: false`, you are now linked to the existing project (and its full
+history).
 
 ##### Step 3 — Write .gramatr/project.json
 
@@ -330,8 +333,8 @@ Then ask me to write `.gramatr/project.json` with:
 
 ```json
 {
-  "project_id": "<project_id from Step 2>",
-  "slug": "<slug from Step 2>",
+  "project_id": "<project.id from Step 2>",
+  "slug": "<project.slug from Step 2>",
   "git_remote": "<git remote from Step 1>"
 }
 ```
