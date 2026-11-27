@@ -2686,8 +2686,8 @@ function readGitRemoteFromConfigSync(cwd) {
   const gitPath = path.join(cwd, ".git");
   if (!(0, import_fs.existsSync)(gitPath))
     return null;
-  let configPath = path.join(gitPath, "config");
-  if (!(0, import_fs.existsSync)(configPath)) {
+  let configPath2 = path.join(gitPath, "config");
+  if (!(0, import_fs.existsSync)(configPath2)) {
     let ptrRaw;
     try {
       ptrRaw = (0, import_fs.readFileSync)(gitPath, "utf8");
@@ -2698,11 +2698,11 @@ function readGitRemoteFromConfigSync(cwd) {
     if (!ptr)
       return null;
     const resolved = path.isAbsolute(ptr) ? ptr : path.resolve(cwd, ptr);
-    configPath = path.join(resolved, "config");
+    configPath2 = path.join(resolved, "config");
   }
   let cfg;
   try {
-    cfg = (0, import_fs.readFileSync)(configPath, "utf8");
+    cfg = (0, import_fs.readFileSync)(configPath2, "utf8");
   } catch {
     return null;
   }
@@ -2819,26 +2819,26 @@ function getConfigPath(rootDir) {
 }
 function readGmtrConfig(rootDir) {
   try {
-    const configPath = getConfigPath(rootDir);
-    if (!(0, import_fs2.existsSync)(configPath))
+    const configPath2 = getConfigPath(rootDir);
+    if (!(0, import_fs2.existsSync)(configPath2))
       return null;
-    const raw = (0, import_fs2.readFileSync)(configPath, "utf8");
+    const raw = (0, import_fs2.readFileSync)(configPath2, "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 function writeGmtrConfig(rootDir, config) {
-  const configPath = getConfigPath(rootDir);
-  const tmpPath = configPath + ".tmp";
+  const configPath2 = getConfigPath(rootDir);
+  const tmpPath = configPath2 + ".tmp";
   const dir = (0, import_path.join)(rootDir, ".gramatr");
   if (!(0, import_fs2.existsSync)(dir)) {
     (0, import_fs2.mkdirSync)(dir, { recursive: true, mode: 448 });
   }
   (0, import_fs2.writeFileSync)(tmpPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf8", mode: 384 });
-  (0, import_fs2.renameSync)(tmpPath, configPath);
+  (0, import_fs2.renameSync)(tmpPath, configPath2);
   try {
-    (0, import_fs2.chmodSync)(configPath, 384);
+    (0, import_fs2.chmodSync)(configPath2, 384);
   } catch {
   }
 }
@@ -2889,8 +2889,8 @@ function createDefaultConfig(options) {
 }
 function resolveAuthToken() {
   try {
-    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs2.readFileSync)(configPath, "utf8"));
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
     if (config.token)
       return config.token;
   } catch {
@@ -2911,8 +2911,8 @@ function resolveAuthToken() {
 }
 function resolveUserId() {
   try {
-    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs2.readFileSync)(configPath, "utf8"));
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
     if (typeof config.user_id === "string" && config.user_id.length > 0)
       return config.user_id;
   } catch {
@@ -2928,8 +2928,8 @@ function resolveUserId() {
 }
 function resolveUserName() {
   try {
-    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs2.readFileSync)(configPath, "utf8"));
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
     if (typeof config.user?.name === "string" && config.user.name.length > 0) {
       return config.user.name;
     }
@@ -2948,10 +2948,10 @@ function migrateSettingsJson() {
   } catch {
     return;
   }
-  const configPath = (0, import_path.join)(HOME, ".gramatr.json");
+  const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
   let config = {};
   try {
-    config = JSON.parse((0, import_fs2.readFileSync)(configPath, "utf8"));
+    config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
   } catch {
   }
   let changed = false;
@@ -2991,7 +2991,7 @@ function migrateSettingsJson() {
   }
   if (changed) {
     try {
-      (0, import_fs2.writeFileSync)(configPath, JSON.stringify(config, null, 2) + "\n");
+      (0, import_fs2.writeFileSync)(configPath2, JSON.stringify(config, null, 2) + "\n");
     } catch {
       return;
     }
@@ -3003,8 +3003,8 @@ function migrateSettingsJson() {
 }
 function resolveMcpUrl() {
   try {
-    const configPath = (0, import_path.join)(HOME, ".gramatr.json");
-    const config = JSON.parse((0, import_fs2.readFileSync)(configPath, "utf8"));
+    const configPath2 = (0, import_path.join)(HOME, ".gramatr.json");
+    const config = JSON.parse((0, import_fs2.readFileSync)(configPath2, "utf8"));
     if (config.server_url)
       return config.server_url;
   } catch {
@@ -3613,8 +3613,8 @@ __export(statusline_exports, {
   runStatusline: () => runStatusline
 });
 module.exports = __toCommonJS(statusline_exports);
-var import_node_fs9 = require("node:fs");
-var import_node_path9 = require("node:path");
+var import_node_fs10 = require("node:fs");
+var import_node_path10 = require("node:path");
 init_project_state();
 
 // dist/hooks/lib/session-root-registry.js
@@ -4053,6 +4053,45 @@ function getProcessPin(options = {}) {
   }
 }
 
+// dist/user-config.js
+var import_node_fs9 = require("node:fs");
+var import_node_path9 = require("node:path");
+init_config_runtime();
+
+// dist/hooks/generated/schema-constants.js
+var EFFORT_LEVELS = ["instant", "fast", "standard", "extended", "deep", "advanced", "comprehensive"];
+var INTENT_TYPES = ["search", "retrieve", "create", "update", "analyze", "generate"];
+var ENTITY_TYPES = ["profile", "voice", "craft", "work_style", "memory", "relationship", "preference", "team_identity", "org_identity", "task", "milestone", "prd", "decision", "quality_gate", "qg_criterion", "steering_rule", "directive", "skill", "agent_definition", "agent", "playbook", "workflow", "standard", "guideline", "principle", "runbook", "reference", "blog_idea", "strategy", "pattern", "tool", "example", "template", "atom_knowledge", "agent_diary", "session", "conversation", "turn", "classification_record", "classification_telemetry", "reasoning_usage", "agent_execution", "intelligence_packet", "learning_signal", "learning_reflection", "usage_pattern", "learning_correction", "attachment", "execution_record", "model_evaluation", "benchmark", "external_connection", "infrastructure", "audit_log", "brand", "presentation", "slide_template", "email_template", "social_campaign", "content_asset", "cluster_label", "taxonomy_proposal"];
+var WORK_STATUSES = ["open", "in_progress", "blocked", "review", "done"];
+var STATUSLINE_SIZES = ["small", "medium", "large"];
+var EFFORT_LEVEL_SET = new Set(EFFORT_LEVELS);
+var INTENT_TYPE_SET = new Set(INTENT_TYPES);
+var ENTITY_TYPE_SET = new Set(ENTITY_TYPES);
+var WORK_STATUS_SET = new Set(WORK_STATUSES);
+
+// dist/user-config.js
+var DEFAULT_STATUSLINE_SIZE = "medium";
+function configPath() {
+  return (0, import_node_path9.join)(getHomeDir(), ".gramatr.json");
+}
+function readGramatrJson() {
+  try {
+    const raw = (0, import_node_fs9.readFileSync)(configPath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+function readStatuslineSize() {
+  const cfg = readGramatrJson();
+  const size = cfg.statusline?.size;
+  return STATUSLINE_SIZES.includes(size) ? size : DEFAULT_STATUSLINE_SIZE;
+}
+
 // dist/bin/statusline.js
 var PROJECT_DIR = resolveProjectDir({ clientType: "claude-code" });
 var FETCH_TIMEOUT_MS = 2e3;
@@ -4065,7 +4104,7 @@ async function readOwnStdinPayload() {
     return empty;
   let raw;
   try {
-    raw = (0, import_node_fs9.readFileSync)(0, "utf8");
+    raw = (0, import_node_fs10.readFileSync)(0, "utf8");
   } catch {
     return empty;
   }
@@ -4099,11 +4138,11 @@ function getSessionId() {
   const fromState = state?.active_session?.session_id;
   if (typeof fromState === "string" && fromState)
     return fromState;
-  const sessionFile = (0, import_node_path9.join)(PROJECT_DIR, ".gramatr", "session.json");
-  if (!(0, import_node_fs9.existsSync)(sessionFile))
+  const sessionFile = (0, import_node_path10.join)(PROJECT_DIR, ".gramatr", "session.json");
+  if (!(0, import_node_fs10.existsSync)(sessionFile))
     return null;
   try {
-    const data = JSON.parse((0, import_node_fs9.readFileSync)(sessionFile, "utf8"));
+    const data = JSON.parse((0, import_node_fs10.readFileSync)(sessionFile, "utf8"));
     return typeof data.session_id === "string" && data.session_id ? data.session_id : null;
   } catch {
     return null;
@@ -4119,11 +4158,11 @@ function getSessionModel() {
   const fromState = state?.active_session?.model;
   if (typeof fromState === "string" && fromState)
     return fromState;
-  const sessionFile = (0, import_node_path9.join)(PROJECT_DIR, ".gramatr", "session.json");
-  if (!(0, import_node_fs9.existsSync)(sessionFile))
+  const sessionFile = (0, import_node_path10.join)(PROJECT_DIR, ".gramatr", "session.json");
+  if (!(0, import_node_fs10.existsSync)(sessionFile))
     return "";
   try {
-    const data = JSON.parse((0, import_node_fs9.readFileSync)(sessionFile, "utf8"));
+    const data = JSON.parse((0, import_node_fs10.readFileSync)(sessionFile, "utf8"));
     return typeof data.model === "string" ? data.model : "";
   } catch {
     return "";
@@ -4137,10 +4176,10 @@ function readCtxTokensFile(sessionId) {
     stateKey = sessionId;
   }
   const path2 = ctxTokensPath(PROJECT_DIR, stateKey);
-  if (!path2 || !(0, import_node_fs9.existsSync)(path2))
+  if (!path2 || !(0, import_node_fs10.existsSync)(path2))
     return null;
   try {
-    return JSON.parse((0, import_node_fs9.readFileSync)(path2, "utf8"));
+    return JSON.parse((0, import_node_fs10.readFileSync)(path2, "utf8"));
   } catch {
     return null;
   }
@@ -4174,7 +4213,7 @@ async function fetchAndWrite(url, headers) {
     return false;
   }
 }
-function gitStateQuery(state) {
+function statuslineQuery(state) {
   return new URLSearchParams({
     git_branch: state.branch,
     git_ahead: String(state.ahead),
@@ -4182,7 +4221,8 @@ function gitStateQuery(state) {
     git_modified: String(state.modified),
     git_untracked: String(state.untracked),
     git_stash: String(state.stash),
-    git_last_commit_age: state.last_commit_age
+    git_last_commit_age: state.last_commit_age,
+    size: readStatuslineSize()
   }).toString();
 }
 async function tryAuthenticated(gitState) {
@@ -4194,7 +4234,7 @@ async function tryAuthenticated(gitState) {
   }
   if (!token)
     return false;
-  const url = `${apiV1Base(token.base_url)}/statusline?${gitStateQuery(gitState)}`;
+  const url = `${apiV1Base(token.base_url)}/statusline?${statuslineQuery(gitState)}`;
   return fetchAndWrite(url, { ...bearerHeader(token), ...sessionHeader(token) });
 }
 function showDegraded() {

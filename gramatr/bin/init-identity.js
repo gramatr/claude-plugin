@@ -1735,6 +1735,18 @@ var import_node_path17 = require("node:path");
 var import_node_fs = require("node:fs");
 var import_node_path = require("node:path");
 init_config_runtime();
+
+// dist/hooks/generated/schema-constants.js
+var EFFORT_LEVELS = ["instant", "fast", "standard", "extended", "deep", "advanced", "comprehensive"];
+var INTENT_TYPES = ["search", "retrieve", "create", "update", "analyze", "generate"];
+var ENTITY_TYPES = ["profile", "voice", "craft", "work_style", "memory", "relationship", "preference", "team_identity", "org_identity", "task", "milestone", "prd", "decision", "quality_gate", "qg_criterion", "steering_rule", "directive", "skill", "agent_definition", "agent", "playbook", "workflow", "standard", "guideline", "principle", "runbook", "reference", "blog_idea", "strategy", "pattern", "tool", "example", "template", "atom_knowledge", "agent_diary", "session", "conversation", "turn", "classification_record", "classification_telemetry", "reasoning_usage", "agent_execution", "intelligence_packet", "learning_signal", "learning_reflection", "usage_pattern", "learning_correction", "attachment", "execution_record", "model_evaluation", "benchmark", "external_connection", "infrastructure", "audit_log", "brand", "presentation", "slide_template", "email_template", "social_campaign", "content_asset", "cluster_label", "taxonomy_proposal"];
+var WORK_STATUSES = ["open", "in_progress", "blocked", "review", "done"];
+var EFFORT_LEVEL_SET = new Set(EFFORT_LEVELS);
+var INTENT_TYPE_SET = new Set(INTENT_TYPES);
+var ENTITY_TYPE_SET = new Set(ENTITY_TYPES);
+var WORK_STATUS_SET = new Set(WORK_STATUSES);
+
+// dist/user-config.js
 var DEFAULT_TTL_SECONDS = 3600;
 var LOCALLY_UNTRUSTED_IDENTITY_FIELDS = [
   "system_roles",
